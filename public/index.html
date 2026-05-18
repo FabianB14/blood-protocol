@@ -328,6 +328,36 @@
     .death-overlay.show { display: flex; }
     .death-overlay h1 { font-size: 42px; margin: 0; color: var(--blood); letter-spacing: .08em; }
 
+    .rotate-overlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: #050608;
+      display: none;
+      flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; gap: 18px; padding: 28px;
+    }
+    .rotate-overlay h2 { margin: 0; font-size: 22px; color: var(--ink); letter-spacing: .04em; }
+    .rotate-overlay p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; max-width: 320px; }
+    .rotate-icon {
+      width: 96px; height: 96px;
+      border: 3px solid var(--amber); border-radius: 14px;
+      display: grid; place-items: center;
+      animation: rotate-hint 2.4s ease-in-out infinite;
+    }
+    .rotate-icon::before {
+      content: ""; width: 26px; height: 4px; background: var(--amber); border-radius: 2px;
+    }
+    @keyframes rotate-hint {
+      0%   { transform: rotate(0deg); }
+      45%  { transform: rotate(-90deg); }
+      55%  { transform: rotate(-90deg); }
+      100% { transform: rotate(0deg); }
+    }
+
+    /* Phones and tablets in portrait. Wide desktops never trigger. */
+    @media (orientation: portrait) and (max-width: 932px) {
+      .rotate-overlay { display: flex; }
+    }
+
     @media (max-width: 900px) {
       .meters { grid-template-columns: repeat(2, 1fr); }
       .side-left, .side-right { display: none; }
@@ -345,6 +375,12 @@
   </script>
 </head>
 <body>
+  <div class="rotate-overlay" id="rotateOverlay" role="dialog" aria-modal="true">
+    <div class="rotate-icon" aria-hidden="true"></div>
+    <h2>Rotate your device</h2>
+    <p>Bloodline Protocol is built for landscape. Turn your phone sideways to start the hunt.</p>
+  </div>
+
   <canvas id="three"></canvas>
   <div class="crosshair" id="crosshair" style="display:none"></div>
 
