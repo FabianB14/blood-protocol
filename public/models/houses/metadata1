@@ -1,0 +1,119 @@
+{
+	"assetNamespace": "fab",
+	"listing":
+	{
+		"averageRating": 5,
+		"createdAt": "",
+		"description": "Free Small Old House",
+		"isAiForbidden": false,
+		"isAiGenerated": false,
+		"lastUpdatedAt": "",
+		"listingType": "3d-model",
+		"media": "https://media.fab.com/image_previews/gallery_images/16b5ac6e-223e-4224-8568-0673042b3b3e/2bc65451-d04a-464b-b054-c75079ee945e.jpeg",
+		"publishedAt": "2024-11-21T17:30:20.070779Z",
+		"reviewCount": 2,
+		"thumbnail": "https://media.fab.com/image_previews/gallery_images/af1b5381-ce73-4731-9cfe-26a0b6a05d6a/b9eee046-6a44-4884-afdc-8bc1d84dc96f.jpeg",
+		"title": "Free Small Old House",
+		"uid": "e69a3bd0-6ae4-47fb-9a36-cab310b8a3e4",
+		"updatedAt": "",
+		"user":
+		{
+			"coverImageUrl": "https://cdn1.epicgames.com/fab/seller/o-a44x86y79g2vaufv6qwfxwxst7yx4l/cover/994baef9.jpg",
+			"profileImageUrl": "https://cdn1.epicgames.com/fab/seller/o-a44x86y79g2vaufv6qwfxwxst7yx4l/profile/3357e183.jpg",
+			"sellerName": "Jimbogies",
+			"uid": "528eb185-4428-4457-a653-77327aa90de9"
+		},
+		"tags": [
+			{
+				"name": "Small",
+				"slug": "small",
+				"uid": "1216efbc-030f-444f-a23a-09355000fd28"
+			},
+			{
+				"name": "House",
+				"slug": "house",
+				"uid": "6596d504-e433-42e9-a760-b829827af869"
+			},
+			{
+				"name": "Home",
+				"slug": "home",
+				"uid": "901cd72d-3193-480e-84f3-be1106297178"
+			},
+			{
+				"name": "Old",
+				"slug": "old",
+				"uid": "975b1521-db01-43ed-a939-c2c2da5027b1"
+			},
+			{
+				"name": "Cottage",
+				"slug": "cottage",
+				"uid": "fcc837ab-bea3-4d5b-97da-ecb1a037ee55"
+			}
+		],
+		"category":
+		{
+			"name": "Buildings & Architecture",
+			"path": "buildings-architecture",
+			"slug": "buildings-architecture",
+			"uid": "eec3bdd5-ba7a-45a8-b15d-67462b9630f6"
+		},
+		"assetFormats": [
+			{
+				"assetFormatType":
+				{
+					"name": "GLTF",
+					"groupName": "3D Exchange Formats",
+					"code": "gltf",
+					"icon": "cube",
+					"extensions": [
+						"gltf"
+					]
+				}
+			},
+			{
+				"assetFormatType":
+				{
+					"name": "Additional files",
+					"groupName": "Other Formats",
+					"code": "additional-files",
+					"icon": "file",
+					"extensions": [
+						"zip"
+					]
+				}
+			},
+			{
+				"assetFormatType":
+				{
+					"name": "Converted Files",
+					"groupName": "",
+					"code": "converted-files",
+					"icon": "cube",
+					"extensions": [
+						"gltf",
+						"glb",
+						"usdz"
+					]
+				}
+			}
+		],
+		"_PluginMetas":
+		{
+			"apiDataVersion": "0.0.1",
+			"entitlementUid": "ec090449-a6e3-42bf-aa55-f5d593433879",
+			"cacheSize": 0,
+			"downloaded": []
+		}
+	},
+	"target": "",
+	"quality": "",
+	"format": "glb",
+	"fileId": "e2ba0cad-ad46-4741-a62e-1f3504ec6273",
+	"platformIncluded": "",
+	"distributionPointBaseUrls": [],
+	"distributionMethod": "",
+	"entitlementUid": "ec090449-a6e3-42bf-aa55-f5d593433879",
+	"invertedNormal": false,
+	"isConverted": true,
+	"isQuixel": false
+}
