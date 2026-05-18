@@ -5,6 +5,7 @@
   "description": "Realtime browser prototype for Bloodline Protocol.",
   "main": "server/index.js",
   "scripts": {
+    "build": "node --check server/index.js",
     "start": "node server/index.js",
     "dev": "node server/index.js"
   },
