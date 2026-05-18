@@ -141,6 +141,72 @@ const contracts = [
     clueSpots: [{ x: 10, y: 1 }, { x: 7, y: 3 }, { x: 3, y: 7 }],
     cryptPosition: { x: 7, y: 5 },
     vampireStart: { x: 10, y: 5 }
+  },
+  {
+    id: "lazarus",
+    name: "Lazarus Industries",
+    objective: "Trace the corrupted servers, isolate the lab, and EMP the cradle in the lower vault.",
+    level: 3,
+    signs: ["EMF Readings", "Physical Traces", "Sonic Frequencies"],
+    vampire: "Technological Hybrid",
+    mapRows: [
+      "############",
+      "#S....#....#",
+      "#.##...#.#.#",
+      "#......#...#",
+      "###....###.#",
+      "#...C..#K..#",
+      "#..##.....##",
+      "#.....##...#",
+      "############"
+    ],
+    clueSpots: [{ x: 7, y: 1 }, { x: 3, y: 3 }, { x: 8, y: 7 }],
+    cryptPosition: { x: 4, y: 5 },
+    vampireStart: { x: 10, y: 1 }
+  },
+  {
+    id: "wraithmoor",
+    name: "Wraithmoor Sanitarium",
+    objective: "Map the patient ward, recover the dream journals, and break the leech's grip.",
+    level: 3,
+    signs: ["Aura Imprints", "Spectral Echoes", "Sonic Frequencies"],
+    vampire: "Psychic Leech",
+    mapRows: [
+      "############",
+      "#S..#..#...#",
+      "#...#......#",
+      "#.###.##.#.#",
+      "#.....#....#",
+      "#.###.#.#.##",
+      "#C..#.#...K#",
+      "#......##..#",
+      "############"
+    ],
+    clueSpots: [{ x: 5, y: 1 }, { x: 9, y: 4 }, { x: 3, y: 7 }],
+    cryptPosition: { x: 1, y: 6 },
+    vampireStart: { x: 9, y: 6 }
+  },
+  {
+    id: "ravenhall",
+    name: "Ravenhall Estate",
+    objective: "Slip through the ballroom, recover a personal effect, and complete the midnight rite.",
+    level: 2,
+    signs: ["Spectral Echoes", "Physical Traces", "Aura Imprints"],
+    vampire: "Vampiric Noble",
+    mapRows: [
+      "############",
+      "#S.....#...#",
+      "#.##.#.#.#.#",
+      "#....#...#.#",
+      "###.##.###.#",
+      "#.....C....#",
+      "#.##.###.#.#",
+      "#K.........#",
+      "############"
+    ],
+    clueSpots: [{ x: 9, y: 1 }, { x: 2, y: 3 }, { x: 8, y: 7 }],
+    cryptPosition: { x: 6, y: 5 },
+    vampireStart: { x: 9, y: 7 }
   }
 ];
 
@@ -712,6 +778,12 @@ io.on("connection", (socket) => {
     if (!text) return;
     addLog(room, `${player.name}: ${text}`);
     emitRoom(room);
+  });
+
+  socket.on("room:leave", (_payload = {}, ack) => {
+    leaveCurrentRoom(socket);
+    socket.emit("room:left");
+    ack?.({ ok: true });
   });
 
   socket.on("disconnect", () => leaveCurrentRoom(socket));

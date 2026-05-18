@@ -328,6 +328,54 @@
     .death-overlay.show { display: flex; }
     .death-overlay h1 { font-size: 42px; margin: 0; color: var(--blood); letter-spacing: .08em; }
 
+    /* Touch controls: hidden by default, enabled when JS detects touch */
+    .touch-layer { display: none; position: fixed; inset: 0; pointer-events: none; z-index: 6; }
+    .touch-layer.active { display: block; }
+    .touch-layer > * { pointer-events: auto; }
+
+    .joystick {
+      position: fixed; left: 24px; bottom: 110px;
+      width: 140px; height: 140px;
+      border-radius: 50%;
+      background: rgba(0,0,0,.35); border: 2px solid rgba(255,255,255,.18);
+      touch-action: none;
+      backdrop-filter: blur(6px);
+    }
+    .joystick-knob {
+      position: absolute; left: 50%; top: 50%;
+      width: 60px; height: 60px;
+      margin-left: -30px; margin-top: -30px;
+      border-radius: 50%;
+      background: rgba(225,169,87,.65); border: 2px solid rgba(255,255,255,.4);
+      pointer-events: none;
+      transition: transform 0.08s ease;
+    }
+
+    .touch-actions {
+      position: fixed; right: 18px; bottom: 110px;
+      display: grid; grid-template-columns: 72px 72px; gap: 10px;
+    }
+    .touch-btn {
+      width: 72px; height: 72px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,.25);
+      background: rgba(0,0,0,.4); color: var(--ink);
+      font-weight: 900; font-size: 18px;
+      backdrop-filter: blur(6px);
+      touch-action: manipulation;
+    }
+    .touch-btn:active { background: rgba(225,169,87,.4); transform: scale(.95); }
+    .touch-btn.held { background: rgba(225,169,87,.5); }
+    #touchSprint { font-size: 13px; }
+
+    .look-area {
+      position: fixed; right: 0; top: 0; bottom: 0;
+      width: 50vw;
+      pointer-events: auto;
+      touch-action: none;
+      z-index: 5;
+    }
+
     .rotate-overlay {
       position: fixed; inset: 0; z-index: 200;
       background: #050608;
@@ -442,6 +490,20 @@
       </div>
       <button class="ghost" id="menuBtn">Menu</button>
     </div>
+
+    <!-- Touch controls (hidden on desktop, shown on touch devices) -->
+    <div class="touch-layer" id="touchLayer">
+      <div class="joystick" id="joystick">
+        <div class="joystick-knob" id="joystickKnob"></div>
+      </div>
+      <div class="touch-actions">
+        <button class="touch-btn" id="touchSprint" aria-label="Sprint">RUN</button>
+        <button class="touch-btn" id="touchScan" aria-label="Scan">E</button>
+        <button class="touch-btn" id="touchWard" aria-label="Ward">Q</button>
+        <button class="touch-btn" id="touchSeal" aria-label="Seal">F</button>
+      </div>
+      <div class="look-area" id="lookArea"></div>
+    </div>
   </div>
 
   <div class="notice" id="notice"></div>
@@ -525,6 +587,9 @@
             <div style="display:flex; gap:8px; margin-top:12px;">
               <button class="secondary" id="readyBtn" style="flex:1">Ready Up</button>
               <button class="primary" id="startBtn" style="flex:1" disabled>Start Hunt</button>
+            </div>
+            <div style="display:flex; gap:8px; margin-top:8px;">
+              <button class="ghost" id="quitBtn" style="flex:1; color: var(--blood); border-color: rgba(183,53,53,.35);" disabled>Quit Match</button>
             </div>
           </div>
         </div>
@@ -1109,12 +1174,131 @@
     });
     window.addEventListener('keyup', (e) => keys.delete(e.code));
 
+    // Detect touch capability (also true on hybrid laptops; we still allow
+    // keyboard/mouse in that case — touch input simply overrides when used)
+    const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+    const touchInput = { forward: 0, side: 0, sprint: false };
+
+    if (isTouchDevice) $('touchLayer').classList.add('active');
+
     canvas.addEventListener('click', () => {
+      if (isTouchDevice) return; // pointer-lock isn't supported on mobile
       if (!modalOpen()) controls.lock();
     });
 
     controls.addEventListener('lock', () => { $('crosshair').style.display = 'block'; });
     controls.addEventListener('unlock', () => { $('crosshair').style.display = 'none'; });
+
+    // ---------- Touch joystick ----------
+    {
+      const stick = $('joystick');
+      const knob = $('joystickKnob');
+      let activeId = null;
+      const center = { x: 0, y: 0 };
+      const MAX = 48;
+
+      const startStick = (e) => {
+        if (activeId !== null) return;
+        const t = e.changedTouches[0];
+        activeId = t.identifier;
+        const r = stick.getBoundingClientRect();
+        center.x = r.left + r.width / 2;
+        center.y = r.top + r.height / 2;
+        e.preventDefault();
+      };
+      const moveStick = (e) => {
+        for (const t of e.changedTouches) {
+          if (t.identifier !== activeId) continue;
+          e.preventDefault();
+          const dx = t.clientX - center.x;
+          const dy = t.clientY - center.y;
+          const d = Math.min(MAX, Math.hypot(dx, dy));
+          const a = Math.atan2(dy, dx);
+          const kx = Math.cos(a) * d;
+          const ky = Math.sin(a) * d;
+          knob.style.transform = `translate(${kx}px, ${ky}px)`;
+          touchInput.side = kx / MAX;
+          touchInput.forward = -ky / MAX; // up on screen = forward in world
+        }
+      };
+      const endStick = (e) => {
+        for (const t of e.changedTouches) {
+          if (t.identifier === activeId) {
+            activeId = null;
+            knob.style.transform = '';
+            touchInput.forward = 0;
+            touchInput.side = 0;
+          }
+        }
+      };
+      stick.addEventListener('touchstart', startStick, { passive: false });
+      stick.addEventListener('touchmove', moveStick, { passive: false });
+      stick.addEventListener('touchend', endStick);
+      stick.addEventListener('touchcancel', endStick);
+    }
+
+    // ---------- Touch drag-to-look ----------
+    {
+      const area = $('lookArea');
+      let activeId = null;
+      let lastX = 0, lastY = 0;
+      const lookEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+      const SENS = 0.0045;
+
+      area.addEventListener('touchstart', (e) => {
+        if (activeId !== null) return;
+        const t = e.changedTouches[0];
+        activeId = t.identifier;
+        lastX = t.clientX;
+        lastY = t.clientY;
+        e.preventDefault();
+      }, { passive: false });
+
+      area.addEventListener('touchmove', (e) => {
+        for (const t of e.changedTouches) {
+          if (t.identifier !== activeId) continue;
+          e.preventDefault();
+          const dx = t.clientX - lastX;
+          const dy = t.clientY - lastY;
+          lastX = t.clientX;
+          lastY = t.clientY;
+          lookEuler.setFromQuaternion(camera.quaternion);
+          lookEuler.y -= dx * SENS;
+          lookEuler.x -= dy * SENS;
+          lookEuler.x = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, lookEuler.x));
+          camera.quaternion.setFromEuler(lookEuler);
+        }
+      }, { passive: false });
+
+      const endLook = (e) => {
+        for (const t of e.changedTouches) if (t.identifier === activeId) activeId = null;
+      };
+      area.addEventListener('touchend', endLook);
+      area.addEventListener('touchcancel', endLook);
+    }
+
+    // ---------- Touch action buttons ----------
+    {
+      const wireTap = (id, fn) => {
+        const el = $(id);
+        const handler = (e) => { e.preventDefault(); fn(); };
+        el.addEventListener('click', handler);
+      };
+      wireTap('touchScan', () => socket.emit('match:scan'));
+      wireTap('touchWard', () => socket.emit('match:ward'));
+      wireTap('touchSeal', () => socket.emit('match:seal'));
+      const sprintBtn = $('touchSprint');
+      const setSprint = (on) => {
+        touchInput.sprint = on;
+        sprintBtn.classList.toggle('held', on);
+      };
+      sprintBtn.addEventListener('touchstart', (e) => { e.preventDefault(); setSprint(true); }, { passive: false });
+      sprintBtn.addEventListener('touchend', () => setSprint(false));
+      sprintBtn.addEventListener('touchcancel', () => setSprint(false));
+      sprintBtn.addEventListener('mousedown', () => setSprint(true));
+      sprintBtn.addEventListener('mouseup', () => setSprint(false));
+      sprintBtn.addEventListener('mouseleave', () => setSprint(false));
+    }
 
     // Collision against current map (radius matches server)
     const PLAYER_RADIUS = 0.55;
@@ -1142,14 +1326,18 @@
       requestAnimationFrame(animate);
       const dt = Math.min(0.05, clock.getDelta());
 
-      // Movement
-      if (controls.isLocked && roomState && roomState.phase === 'hunt') {
-        const speed = keys.has('ShiftLeft') || keys.has('ShiftRight') ? 6.5 : 3.4;
+      // Movement — allowed when pointer-locked (desktop) OR on a touch device
+      const canControl = (controls.isLocked || isTouchDevice) && roomState && roomState.phase === 'hunt' && !modalOpen();
+      if (canControl) {
+        const sprint = keys.has('ShiftLeft') || keys.has('ShiftRight') || touchInput.sprint;
+        const speed = sprint ? 6.5 : 3.4;
 
-        const wInput = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0)
-                     - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
-        const dInput = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0)
-                     - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
+        let wInput = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0)
+                   - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
+        let dInput = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0)
+                   - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
+        if (touchInput.forward !== 0) wInput = touchInput.forward;
+        if (touchInput.side !== 0) dInput = touchInput.side;
 
         if (wInput !== 0 || dInput !== 0) {
           // Build forward / right from the actual camera direction (ignore pitch)
@@ -1284,7 +1472,7 @@
       if (prevPhase !== 'hunt' && room.phase === 'hunt') {
         controls.getObject().position.set(room.spawn.x, PLAYER_HEIGHT, room.spawn.z);
         closeModal();
-        showNotice('Click anywhere to lock the pointer and hunt.');
+        showNotice(isTouchDevice ? 'Hunt begun. Drag the right side to look around.' : 'Click anywhere to lock the pointer and hunt.');
       }
       if (room.phase === 'complete' && prevPhase === 'hunt') {
         controls.unlock();
@@ -1313,6 +1501,23 @@
     socket.on('notice', (n) => showNotice(n.message));
     socket.on('leaderboard:update', () => {
       if (currentTab === 'leaderboard') loadLeaderboard();
+    });
+    socket.on('room:left', () => {
+      roomState = null;
+      local.room = null;
+      local.ready = false;
+      // tear down the world; the player is no longer in a contract
+      clearWorld();
+      if (vampireMesh) { worldGroup.remove(vampireMesh); vampireMesh = null; }
+      $('roomCode').value = '';
+      $('contractName').textContent = '—';
+      $('contractMeta').textContent = 'Lobby';
+      $('contractObjective').textContent = 'Open the menu to host or join.';
+      $('rewardSlot').innerHTML = '';
+      $('deathOverlay').classList.remove('show');
+      renderLobby(null);
+      openMenu('lobby');
+      showNotice('Left the room.');
     });
 
     // ---------- HUD rendering ----------
@@ -1468,6 +1673,7 @@
       const allReady = players.length > 0 && players.every((p) => p.ready);
       const isHost = room?.hostId === socket.id;
       $('startBtn').disabled = !room || !isHost || !allReady || room.phase === 'hunt';
+      $('quitBtn').disabled = !room;
       renderReward(room);
     }
 
@@ -1730,6 +1936,10 @@
       updatePlayer({ ready: local.ready });
     });
     $('startBtn').addEventListener('click', () => socket.emit('match:start'));
+    $('quitBtn').addEventListener('click', () => {
+      if (!roomState) return;
+      socket.emit('room:leave');
+    });
     $('copyLinkBtn').addEventListener('click', async () => {
       if (!roomState) return showNotice('Host or join a lobby first.');
       const invite = `${location.origin}/?room=${roomState.code}`;
