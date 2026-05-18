@@ -206,6 +206,23 @@ function scanTextures() {
 let cachedTextures = scanTextures();
 app.get("/api/textures", (_req, res) => res.json(cachedTextures));
 
+function scanModels() {
+  const out = { hunters: [] };
+  const dir = path.join(PUBLIC_DIR, "models", "hunters");
+  if (fs.existsSync(dir)) {
+    try {
+      out.hunters = fs.readdirSync(dir)
+        .filter((f) => /\.glb$/i.test(f))
+        .sort((a, b) => a === "default.glb" ? -1 : b === "default.glb" ? 1 : a.localeCompare(b))
+        .map((f) => `/models/hunters/${encodeURIComponent(f)}`);
+    } catch (_e) {}
+  }
+  return out;
+}
+
+let cachedModels = scanModels();
+app.get("/api/models", (_req, res) => res.json(cachedModels));
+
 function loadJson(file, fallback) {
   try {
     if (!fs.existsSync(file)) return fallback;

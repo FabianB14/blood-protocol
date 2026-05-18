@@ -553,6 +553,8 @@
   <script type="module">
     import * as THREE from 'three';
     import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { SkeletonUtils } from 'three/addons/utils/SkeletonUtils.js';
 
     // ---------- State ----------
     const socket = io();
@@ -878,7 +880,46 @@
       return sprite;
     }
 
-    function makeHunterMesh(player) {
+    // Loaded once: the rigged GLTF for hunters (scene + animation clips).
+    // null = no model installed; meshes fall back to the capsule placeholder.
+    let hunterGltf = null;
+
+    async function loadHunterModel() {
+      let urls;
+      try {
+        const res = await fetch('/api/models');
+        urls = (await res.json()).hunters || [];
+      } catch (_e) { return; }
+      if (urls.length === 0) return;
+
+      const loader = new GLTFLoader();
+      const gltf = await new Promise((resolve, reject) => loader.load(urls[0], resolve, undefined, reject))
+        .catch((e) => { console.warn('Hunter model failed to load:', e); return null; });
+      if (!gltf) return;
+
+      // Auto-scale and align: most rigged characters are 1.7-1.9m tall; some
+      // (Mixamo, mostly) export at cm scale (~170 units) or facing +Z.
+      const bbox = new THREE.Box3().setFromObject(gltf.scene);
+      const size = bbox.getSize(new THREE.Vector3());
+      const targetHeight = 1.75;
+      const scale = targetHeight / size.y;
+      gltf.scene.scale.setScalar(scale);
+      bbox.setFromObject(gltf.scene);
+      // Plant feet at y=0
+      gltf.scene.position.y -= bbox.min.y;
+
+      hunterGltf = gltf;
+    }
+
+    function pickAnimationClip(clips, ...needles) {
+      for (const n of needles) {
+        const c = clips.find((clip) => clip.name.toLowerCase().includes(n));
+        if (c) return c;
+      }
+      return null;
+    }
+
+    function makeCapsuleHunter(player) {
       const group = new THREE.Group();
       const color = colorHex[player.profile?.color] || 0x55c7a6;
       const body = new THREE.Mesh(
@@ -893,11 +934,71 @@
       );
       head.position.y = 1.85;
       group.add(head);
-      const sprite = makeNameSprite(player.name);
-      group.add(sprite);
+      return group;
+    }
+
+    function makeHunterMesh(player) {
+      const group = new THREE.Group();
       group.userData.color = player.profile?.color;
       group.userData.name = player.name;
+
+      if (hunterGltf) {
+        const skinned = SkeletonUtils.clone(hunterGltf.scene);
+        // Per-player material clones so we can tint individually without
+        // affecting other players that share the cached GLB materials.
+        const tint = new THREE.Color(colorHex[player.profile?.color] || 0xffffff);
+        skinned.traverse((node) => {
+          if (node.isMesh) {
+            node.material = Array.isArray(node.material)
+              ? node.material.map((m) => m.clone())
+              : node.material.clone();
+            const mats = Array.isArray(node.material) ? node.material : [node.material];
+            mats.forEach((m) => {
+              if (m.color) m.color.lerp(tint, 0.35); // tint without crushing the texture
+            });
+          }
+        });
+        group.add(skinned);
+
+        if (hunterGltf.animations.length > 0) {
+          const mixer = new THREE.AnimationMixer(skinned);
+          const idle = pickAnimationClip(hunterGltf.animations, 'idle');
+          const walk = pickAnimationClip(hunterGltf.animations, 'walk', 'walking');
+          const run = pickAnimationClip(hunterGltf.animations, 'run', 'running', 'sprint');
+          const fallback = hunterGltf.animations[0];
+          const actions = {
+            idle: idle ? mixer.clipAction(idle) : (fallback ? mixer.clipAction(fallback) : null),
+            walk: walk ? mixer.clipAction(walk) : null,
+            run:  run  ? mixer.clipAction(run)  : null
+          };
+          Object.values(actions).forEach((a) => a && a.play().setEffectiveWeight(0));
+          if (actions.idle) actions.idle.setEffectiveWeight(1);
+          group.userData.mixer = mixer;
+          group.userData.actions = actions;
+          group.userData.currentAction = 'idle';
+        }
+      } else {
+        group.add(makeCapsuleHunter(player));
+      }
+
+      const sprite = makeNameSprite(player.name);
+      group.add(sprite);
       return group;
+    }
+
+    function setHunterAnimation(mesh, state) {
+      const actions = mesh.userData.actions;
+      if (!actions) return;
+      if (mesh.userData.currentAction === state) return;
+      const FADE = 0.18;
+      const target = actions[state] || actions.idle;
+      const previous = actions[mesh.userData.currentAction];
+      if (!target) return;
+      if (previous && previous !== target) {
+        previous.fadeOut(FADE);
+      }
+      target.reset().fadeIn(FADE).play();
+      mesh.userData.currentAction = state;
     }
 
     function syncPlayers(room) {
@@ -1029,16 +1130,24 @@
         }
       }
 
-      // Smooth other players
+      // Smooth other players + drive their animation state
       playerMeshes.forEach((mesh) => {
         const t = mesh.userData.target;
         const c = mesh.userData.current;
         if (!t || !c) return;
+        const prevX = c.x, prevZ = c.z;
         c.x += (t.x - c.x) * Math.min(1, dt * 10);
         c.z += (t.z - c.z) * Math.min(1, dt * 10);
         c.yaw += angleDelta(c.yaw, t.yaw) * Math.min(1, dt * 8);
         mesh.position.set(c.x, 0, c.z);
         mesh.rotation.y = c.yaw + Math.PI;
+
+        if (mesh.userData.mixer) {
+          mesh.userData.mixer.update(dt);
+          const speed = Math.hypot(c.x - prevX, c.z - prevZ) / Math.max(dt, 0.001);
+          const state = speed < 0.4 ? 'idle' : speed < 4.5 ? 'walk' : 'run';
+          setHunterAnimation(mesh, state);
+        }
       });
 
       // Vampire bob
@@ -1604,6 +1713,23 @@
         applyTextureRepeat(ceilMat, w, h);
         applyTextureRepeat(wallMat, 2, 2);
         applyTextureRepeat(cryptFloorMat, 2, 2);
+      }
+    });
+
+    loadHunterModel().then(() => {
+      if (!hunterGltf || !roomState) return;
+      // Swap any placeholder capsule hunters created before the model loaded
+      for (const [id, mesh] of [...playerMeshes.entries()]) {
+        const cur = mesh.userData.current;
+        worldGroup.remove(mesh);
+        playerMeshes.delete(id);
+        const p = roomState.players.find((pp) => pp.id === id);
+        if (!p) continue;
+        const rebuilt = makeHunterMesh(p);
+        rebuilt.userData.current = cur;
+        rebuilt.userData.target = { ...cur };
+        playerMeshes.set(id, rebuilt);
+        worldGroup.add(rebuilt);
       }
     });
     const params = new URLSearchParams(location.search);
