@@ -880,11 +880,13 @@
       return sprite;
     }
 
-    // Loaded once: the rigged GLTF for hunters (scene + animation clips).
-    // null = no model installed; meshes fall back to the capsule placeholder.
-    let hunterGltf = null;
+    // Loaded once: parsed GLTFs for hunter characters. Each player is
+    // deterministically assigned one of these by hashing their socket id, so a
+    // single tester can spin up multiple tabs to see all models in use.
+    // Empty = no models installed; meshes fall back to the capsule placeholder.
+    const hunterModels = [];
 
-    async function loadHunterModel() {
+    async function loadHunterModels() {
       let urls;
       try {
         const res = await fetch('/api/models');
@@ -893,22 +895,34 @@
       if (urls.length === 0) return;
 
       const loader = new GLTFLoader();
-      const gltf = await new Promise((resolve, reject) => loader.load(urls[0], resolve, undefined, reject))
-        .catch((e) => { console.warn('Hunter model failed to load:', e); return null; });
-      if (!gltf) return;
+      const loaded = await Promise.all(urls.map((url) => new Promise((resolve) => {
+        loader.load(
+          url,
+          (gltf) => {
+            // Auto-scale to 1.75m tall and plant feet at local y=0 so the
+            // mesh sits correctly when parented to a player group at y=0.
+            const bbox1 = new THREE.Box3().setFromObject(gltf.scene);
+            const size = bbox1.getSize(new THREE.Vector3());
+            const scale = 1.75 / Math.max(0.0001, size.y);
+            gltf.scene.scale.setScalar(scale);
+            const bbox2 = new THREE.Box3().setFromObject(gltf.scene);
+            gltf.scene.position.y -= bbox2.min.y;
+            resolve({ url, scene: gltf.scene, animations: gltf.animations });
+          },
+          undefined,
+          (err) => { console.warn('Hunter model failed to load:', url, err); resolve(null); }
+        );
+      })));
+      for (const item of loaded) if (item) hunterModels.push(item);
+      if (hunterModels.length > 0) console.log(`Loaded ${hunterModels.length} hunter model(s).`);
+    }
 
-      // Auto-scale and align: most rigged characters are 1.7-1.9m tall; some
-      // (Mixamo, mostly) export at cm scale (~170 units) or facing +Z.
-      const bbox = new THREE.Box3().setFromObject(gltf.scene);
-      const size = bbox.getSize(new THREE.Vector3());
-      const targetHeight = 1.75;
-      const scale = targetHeight / size.y;
-      gltf.scene.scale.setScalar(scale);
-      bbox.setFromObject(gltf.scene);
-      // Plant feet at y=0
-      gltf.scene.position.y -= bbox.min.y;
-
-      hunterGltf = gltf;
+    function pickModelFor(player) {
+      if (hunterModels.length === 0) return null;
+      const id = String(player.id || player.clientId || player.name || 'x');
+      let hash = 0;
+      for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+      return hunterModels[Math.abs(hash) % hunterModels.length];
     }
 
     function pickAnimationClip(clips, ...needles) {
@@ -941,11 +955,14 @@
       const group = new THREE.Group();
       group.userData.color = player.profile?.color;
       group.userData.name = player.name;
+      group.userData.modelUrl = null;
 
-      if (hunterGltf) {
-        const skinned = SkeletonUtils.clone(hunterGltf.scene);
-        // Per-player material clones so we can tint individually without
-        // affecting other players that share the cached GLB materials.
+      const modelDef = pickModelFor(player);
+      if (modelDef) {
+        group.userData.modelUrl = modelDef.url;
+        const skinned = SkeletonUtils.clone(modelDef.scene);
+        // Per-player material clones so the per-hunter tint doesn't bleed
+        // into other players sharing the cached GLB materials.
         const tint = new THREE.Color(colorHex[player.profile?.color] || 0xffffff);
         skinned.traverse((node) => {
           if (node.isMesh) {
@@ -954,22 +971,22 @@
               : node.material.clone();
             const mats = Array.isArray(node.material) ? node.material : [node.material];
             mats.forEach((m) => {
-              if (m.color) m.color.lerp(tint, 0.35); // tint without crushing the texture
+              if (m.color) m.color.lerp(tint, 0.35); // tint without crushing texture
             });
           }
         });
         group.add(skinned);
 
-        if (hunterGltf.animations.length > 0) {
+        if (modelDef.animations.length > 0) {
           const mixer = new THREE.AnimationMixer(skinned);
-          const idle = pickAnimationClip(hunterGltf.animations, 'idle');
-          const walk = pickAnimationClip(hunterGltf.animations, 'walk', 'walking');
-          const run = pickAnimationClip(hunterGltf.animations, 'run', 'running', 'sprint');
-          const fallback = hunterGltf.animations[0];
+          const idleClip = pickAnimationClip(modelDef.animations, 'idle');
+          const walkClip = pickAnimationClip(modelDef.animations, 'walk', 'walking');
+          const runClip = pickAnimationClip(modelDef.animations, 'run', 'running', 'sprint');
+          const fallback = modelDef.animations[0];
           const actions = {
-            idle: idle ? mixer.clipAction(idle) : (fallback ? mixer.clipAction(fallback) : null),
-            walk: walk ? mixer.clipAction(walk) : null,
-            run:  run  ? mixer.clipAction(run)  : null
+            idle: idleClip ? mixer.clipAction(idleClip) : (fallback ? mixer.clipAction(fallback) : null),
+            walk: walkClip ? mixer.clipAction(walkClip) : null,
+            run:  runClip  ? mixer.clipAction(runClip)  : null
           };
           Object.values(actions).forEach((a) => a && a.play().setEffectiveWeight(0));
           if (actions.idle) actions.idle.setEffectiveWeight(1);
@@ -1716,9 +1733,9 @@
       }
     });
 
-    loadHunterModel().then(() => {
-      if (!hunterGltf || !roomState) return;
-      // Swap any placeholder capsule hunters created before the model loaded
+    loadHunterModels().then(() => {
+      if (hunterModels.length === 0 || !roomState) return;
+      // Swap any placeholder capsule hunters created before models loaded
       for (const [id, mesh] of [...playerMeshes.entries()]) {
         const cur = mesh.userData.current;
         worldGroup.remove(mesh);
