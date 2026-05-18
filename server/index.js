@@ -1356,5 +1356,5 @@ function calculateRewards(room, success) {
 }
 
 server.listen(PORT, () => {
-  console.log(`Bloodline Protocol server listening on ${PORT}`);
+  console.log(`Nightfall: Hunters' Crusade server listening on ${PORT}`);
 });

@@ -1,6 +1,6 @@
-# Bloodline Protocol
+# Nightfall: Hunters' Crusade
 
-A realtime browser co-op vampire investigation game — first-person 3D, Phasmophobia-style. Hunt the bloodline, log three signs of evidence, and seal the coffin before fear or the moon hits 100%.
+A realtime browser co-op vampire investigation game — first-person 3D, Phasmophobia-style. Hunt the bloodline, log evidence, deduce the species, and perform its banishment ritual before fear or the moon hits 100%.
 
 ## Current Build
 

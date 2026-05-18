@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Bloodline Protocol</title>
+  <title>Nightfall: Hunters' Crusade</title>
   <style>
     :root {
       --ink: #f4efe8;
@@ -426,7 +426,7 @@
   <div class="rotate-overlay" id="rotateOverlay" role="dialog" aria-modal="true">
     <div class="rotate-icon" aria-hidden="true"></div>
     <h2>Rotate your device</h2>
-    <p>Bloodline Protocol is built for landscape. Turn your phone sideways to start the hunt.</p>
+    <p>Nightfall: Hunters' Crusade is built for landscape. Turn your phone sideways to start the hunt.</p>
   </div>
 
   <canvas id="three"></canvas>
@@ -437,7 +437,7 @@
       <div class="brand">
         <div class="mark">V</div>
         <div>
-          <div class="brand-title">Bloodline Protocol</div>
+          <div class="brand-title">Nightfall: Hunters' Crusade</div>
           <div class="brand-sub" id="brandSub">Connecting...</div>
         </div>
       </div>
@@ -471,6 +471,10 @@
       <div class="panel">
         <h3>Radio</h3>
         <div class="log" id="logList"></div>
+        <form id="chatForm" style="display:flex; gap:6px; margin-top:8px;">
+          <input id="chatInput" placeholder="Press T to chat / Enter to send" maxlength="80" style="flex:1; min-height: 32px; font-size:12px; padding:4px 8px;">
+          <button class="ghost" type="submit" style="min-height: 32px; padding: 4px 10px;">Send</button>
+        </form>
       </div>
     </aside>
 
@@ -1309,6 +1313,7 @@
       if (e.code === 'KeyQ') socket.emit('match:ward');
       if (e.code === 'KeyF') socket.emit('match:seal');
       if (e.code === 'KeyJ') openMenu('journal');
+      if (e.code === 'KeyT') { e.preventDefault(); $('chatInput').focus(); }
       if (e.code === 'KeyB') toggleFlashlight();
       if (e.code === 'KeyV') setInvestigate(true);
       if (e.code === 'KeyG') sendPing();
@@ -1688,6 +1693,21 @@
     });
     socket.on('leaderboard:update', () => {
       if (currentTab === 'leaderboard') loadLeaderboard();
+    });
+
+    // Text chat: server already echoes match:chat back into room.logs, so the
+    // existing Radio panel renders it. We only need an input + submit.
+    $('chatForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const input = $('chatInput');
+      const text = (input.value || '').trim();
+      if (!text) return;
+      socket.emit('match:chat', { text });
+      input.value = '';
+      input.blur();
+    });
+    $('chatInput').addEventListener('keydown', (e) => {
+      if (e.code === 'Escape') { e.preventDefault(); $('chatInput').blur(); }
     });
     socket.on('room:left', () => {
       roomState = null;
