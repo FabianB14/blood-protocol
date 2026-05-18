@@ -339,7 +339,7 @@
         <div class="mission-bar">
           <div class="panel briefing">
             <h2 id="contractTitle">Contract: Ashbury Manor</h2>
-            <p>Host a lobby, share the room code, ready up, and begin the hunt. Movement and match state sync through the server.</p>
+            <p id="objectiveText">Host a lobby, share the room code, ready up, and begin the hunt. Movement and match state sync through the server.</p>
             <div class="action-row">
               <button class="primary" id="startBtn">Start Hunt</button>
               <button class="secondary" id="contractBtn">New Contract</button>
@@ -402,7 +402,7 @@
       { id: "alchemist", name: "Alchemist", tag: "Stabilizes fear and funds", items: ["Hemlock serum", "Coagulant flask", "Mercury vial", "Tonic kit"] }
     ];
     const defaultSigns = ["Cold breath", "No reflection", "Claw marks"];
-    const mapRows = [
+    const defaultMapRows = [
       "############",
       "#S..#......#",
       "#...#..#...#",
@@ -413,7 +413,7 @@
       "#......K...#",
       "############"
     ];
-    const clueSpots = [{ x: 7, y: 1 }, { x: 5, y: 5 }, { x: 8, y: 7 }];
+    const defaultClueSpots = [{ x: 7, y: 1 }, { x: 5, y: 5 }, { x: 8, y: 7 }];
     const socket = io();
     const savedProfile = JSON.parse(localStorage.getItem("bloodProtocolProfile") || "{}");
     const local = {
@@ -519,9 +519,10 @@
     });
 
     function renderAll() {
-      const room = roomState || { code: "No room", contract: "Ashbury Manor", phase: "lobby", fear: 18, moon: 45, threat: 0, funds: 640, players: [], signs: defaultSigns, evidence: [], wards: [], logs: ["Host or join a lobby to begin."], revealedVampire: "Unknown" };
+      const room = roomState || { code: "No room", contract: "Ashbury Manor", objective: "Host a lobby, share the room code, ready up, and begin the hunt.", difficulty: "Standard", phase: "lobby", fear: 18, moon: 45, threat: 0, funds: 640, players: [], signs: defaultSigns, mapRows: defaultMapRows, clueSpots: defaultClueSpots, evidence: [], wards: [], logs: ["Host or join a lobby to begin."], revealedVampire: "Unknown" };
       $("lobbyCode").textContent = `LOBBY: ${room.code}`;
-      $("contractTitle").textContent = `Contract: ${room.contract} / ${room.phase}`;
+      $("contractTitle").textContent = `Contract: ${room.contract} / ${room.difficulty} / ${room.phase}`;
+      $("objectiveText").textContent = room.objective || "Find the signs, survive the hunt, and seal the coffin.";
       $("vampireType").textContent = room.revealedVampire;
       $("startBtn").disabled = room.hostId !== socket.id || room.phase === "hunt";
       $("contractBtn").disabled = room.hostId !== socket.id || room.phase === "hunt";
@@ -598,10 +599,13 @@
     }
 
     function renderMap(room) {
+      const rows = room.mapRows || defaultMapRows;
       let html = "";
-      for (let y = 0; y < mapRows.length; y += 1) {
-        for (let x = 0; x < mapRows[y].length; x += 1) {
-          const char = mapRows[y][x];
+      $("map").style.gridTemplateColumns = `repeat(${rows[0].length}, var(--tile))`;
+      $("map").style.gridTemplateRows = `repeat(${rows.length}, var(--tile))`;
+      for (let y = 0; y < rows.length; y += 1) {
+        for (let x = 0; x < rows[y].length; x += 1) {
+          const char = rows[y][x];
           const clues = getClues(room);
           const clue = clues.find((item) => item.x === x && item.y === y && !room.evidence.includes(item.sign));
           const classes = ["tile"];
@@ -653,8 +657,9 @@
     function move(dx, dy) {
       if (!roomState) return;
       if (roomState.phase !== "hunt") return showNotice("Start the hunt before moving through the manor.");
+      const rows = roomState.mapRows || defaultMapRows;
       const next = { x: local.position.x + dx, y: local.position.y + dy };
-      if ((mapRows[next.y]?.[next.x] || "#") === "#") return;
+      if ((rows[next.y]?.[next.x] || "#") === "#") return;
       local.position = next;
       updatePlayer({ position: next });
       socket.emit("match:event", { kind: "tick" });
@@ -679,7 +684,8 @@
 
     function getClues(room) {
       const signs = room.signs || defaultSigns;
-      return clueSpots.map((spot, index) => ({ ...spot, sign: signs[index] }));
+      const spots = room.clueSpots || defaultClueSpots;
+      return spots.map((spot, index) => ({ ...spot, sign: signs[index] }));
     }
 
     function showNotice(message) {

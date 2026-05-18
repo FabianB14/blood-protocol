@@ -21,33 +21,94 @@ const loadouts = {
   alchemist: "Alchemist"
 };
 
-const contracts = [
-  { name: "Ashbury Manor", signs: ["Cold breath", "No reflection", "Claw marks"], vampire: "Strigoi" },
-  { name: "Saint Orla's Hospice", signs: ["Rat swarm", "Grave soil", "Whispering walls"], vampire: "Nosferatu" },
-  { name: "Blackwater Theatre", signs: ["Blood mist", "Candle snuff", "Ancient lullaby"], vampire: "Moroaica" },
-  { name: "Greywick Station", signs: ["Possessed voice", "Floating dust", "Black veins"], vampire: "Vetala" }
-];
-
 const profileColors = ["teal", "blue", "amber", "red"];
 const profileTitles = ["New Blood", "Crypt Runner", "Ward Keeper", "Night Medic", "Relic Hunter"];
-const mapRows = [
-  "############",
-  "#S..#......#",
-  "#...#..#...#",
-  "#......#...#",
-  "###.##...###",
-  "#...C..#...#",
-  "#..##..#...#",
-  "#......K...#",
-  "############"
+const contracts = [
+  {
+    name: "Ashbury Manor",
+    objective: "Identify the bloodline, find the sealed crypt, and close the family coffin.",
+    difficulty: "Standard",
+    signs: ["Cold breath", "No reflection", "Claw marks"],
+    vampire: "Strigoi",
+    mapRows: [
+      "############",
+      "#S..#......#",
+      "#...#..#...#",
+      "#......#...#",
+      "###.##...###",
+      "#...C..#...#",
+      "#..##..#...#",
+      "#......K...#",
+      "############"
+    ],
+    clueSpots: [{ x: 7, y: 1 }, { x: 5, y: 5 }, { x: 8, y: 7 }],
+    cryptPosition: { x: 4, y: 5 },
+    vampireStart: { x: 9, y: 1 }
+  },
+  {
+    name: "Saint Orla's Hospice",
+    objective: "Stabilize the ward, collect patient evidence, and seal the chapel ossuary.",
+    difficulty: "Tense",
+    signs: ["Rat swarm", "Grave soil", "Whispering walls"],
+    vampire: "Nosferatu",
+    mapRows: [
+      "############",
+      "#S.....#...#",
+      "#.###..#.#.#",
+      "#...#....#.#",
+      "###.#.####.#",
+      "#...#C.....#",
+      "#.###..###.#",
+      "#.....K....#",
+      "############"
+    ],
+    clueSpots: [{ x: 6, y: 1 }, { x: 9, y: 5 }, { x: 5, y: 7 }],
+    cryptPosition: { x: 5, y: 5 },
+    vampireStart: { x: 10, y: 7 }
+  },
+  {
+    name: "Blackwater Theatre",
+    objective: "Trace the midnight performance, mark the stage relics, and bind the backstage coffin.",
+    difficulty: "Aggressive",
+    signs: ["Blood mist", "Candle snuff", "Ancient lullaby"],
+    vampire: "Moroaica",
+    mapRows: [
+      "############",
+      "#S....#....#",
+      "#.##..#..#.#",
+      "#......K.#.#",
+      "#.####.#...#",
+      "#....#.#C###",
+      "###..#.....#",
+      "#..........#",
+      "############"
+    ],
+    clueSpots: [{ x: 5, y: 1 }, { x: 7, y: 3 }, { x: 2, y: 7 }],
+    cryptPosition: { x: 8, y: 5 },
+    vampireStart: { x: 9, y: 6 }
+  },
+  {
+    name: "Greywick Station",
+    objective: "Search the abandoned platform, map the possessed signal, and seal the baggage vault.",
+    difficulty: "Hard",
+    signs: ["Possessed voice", "Floating dust", "Black veins"],
+    vampire: "Vetala",
+    mapRows: [
+      "############",
+      "#S..#......#",
+      "#.#.#.####.#",
+      "#.#...#K...#",
+      "#.#####.##.#",
+      "#.....#C...#",
+      "###.#.###..#",
+      "#...#......#",
+      "############"
+    ],
+    clueSpots: [{ x: 10, y: 1 }, { x: 7, y: 3 }, { x: 3, y: 7 }],
+    cryptPosition: { x: 7, y: 5 },
+    vampireStart: { x: 10, y: 5 }
+  }
 ];
-const vampireStarts = {
-  Strigoi: { x: 9, y: 1 },
-  Nosferatu: { x: 9, y: 7 },
-  Moroaica: { x: 6, y: 5 },
-  Vetala: { x: 8, y: 3 }
-};
-const clueSpots = [{ x: 7, y: 1 }, { x: 5, y: 5 }, { x: 8, y: 7 }];
 const rooms = new Map();
 
 app.use(express.static(PUBLIC_DIR));
@@ -74,8 +135,14 @@ function makeRoom(code = makeCode()) {
     code,
     hostId: null,
     contract: contract.name,
+    objective: contract.objective,
+    difficulty: contract.difficulty,
     vampire: contract.vampire,
     signs: contract.signs,
+    mapRows: contract.mapRows,
+    clueSpots: contract.clueSpots,
+    cryptPosition: contract.cryptPosition,
+    vampireStart: contract.vampireStart,
     phase: "lobby",
     fear: 18,
     moon: 45,
@@ -84,7 +151,7 @@ function makeRoom(code = makeCode()) {
     logs: [`Lobby ${code} created.`],
     evidence: [],
     wards: [],
-    vampirePosition: vampireStarts[contract.vampire],
+    vampirePosition: contract.vampireStart,
     threat: 0,
     result: null,
     rewards: null,
@@ -97,6 +164,8 @@ function publicRoom(room) {
     code: room.code,
     hostId: room.hostId,
     contract: room.contract,
+    objective: room.objective,
+    difficulty: room.difficulty,
     phase: room.phase,
     fear: room.fear,
     moon: room.moon,
@@ -104,6 +173,10 @@ function publicRoom(room) {
     players: Object.values(room.players),
     logs: room.logs.slice(-12),
     signs: room.signs,
+    mapRows: room.mapRows,
+    clueSpots: room.clueSpots,
+    cryptPosition: room.cryptPosition,
+    vampireStart: room.vampireStart,
     evidence: room.evidence,
     wards: room.wards,
     vampirePosition: room.vampirePosition,
@@ -163,15 +236,21 @@ function assignNextHost(room) {
 function resetMatch(room, keepPhase = "lobby") {
   const contract = randomContract();
   room.contract = contract.name;
+  room.objective = contract.objective;
+  room.difficulty = contract.difficulty;
   room.vampire = contract.vampire;
   room.signs = contract.signs;
+  room.mapRows = contract.mapRows;
+  room.clueSpots = contract.clueSpots;
+  room.cryptPosition = contract.cryptPosition;
+  room.vampireStart = contract.vampireStart;
   room.phase = keepPhase;
   room.fear = 18;
   room.moon = 45;
   room.funds = 640;
   room.evidence = [];
   room.wards = [];
-  room.vampirePosition = vampireStarts[contract.vampire];
+  room.vampirePosition = contract.vampireStart;
   room.threat = 0;
   room.result = null;
   room.rewards = null;
@@ -221,10 +300,11 @@ io.on("connection", (socket) => {
       };
     }
     if (payload.position) {
-      player.position = {
+      const nextPosition = {
         x: Number(payload.position.x) || 1,
         y: Number(payload.position.y) || 1
       };
+      if (isWalkable(room, nextPosition)) player.position = nextPosition;
     }
 
     emitRoom(room);
@@ -245,7 +325,7 @@ io.on("connection", (socket) => {
     room.moon = 45;
     room.evidence = [];
     room.wards = [];
-    room.vampirePosition = vampireStarts[room.vampire];
+    room.vampirePosition = room.vampireStart;
     room.threat = 0;
     room.result = null;
     room.rewards = null;
@@ -269,7 +349,7 @@ io.on("connection", (socket) => {
     const player = room.players[socket.id];
     if (!player) return;
 
-    const inCrypt = player.position?.x === 4 && player.position?.y === 5;
+    const inCrypt = player.position?.x === room.cryptPosition.x && player.position?.y === room.cryptPosition.y;
     if (room.evidence.length >= 3 && inCrypt) {
       room.phase = "complete";
       room.result = "success";
@@ -384,7 +464,7 @@ function advanceHunt(room) {
     room.threat = Math.max(0, room.threat - 10);
     if (room.tickCount % 3 === 0) addLog(room, "A ward flares and the vampire recoils.");
   } else if (room.threat >= 18) {
-    room.vampirePosition = nextStepToward(room.vampirePosition, target.position);
+    room.vampirePosition = nextStepToward(room, room.vampirePosition, target.position);
   }
 
   const proximity = distance(room.vampirePosition, target.position);
@@ -405,7 +485,7 @@ function advanceHunt(room) {
 function findNearbySign(room, player) {
   if (!player?.position) return null;
   const radius = player.loadout === "occultist" ? 2 : 1;
-  const clues = clueSpots.map((spot, index) => ({ ...spot, sign: room.signs[index] }));
+  const clues = room.clueSpots.map((spot, index) => ({ ...spot, sign: room.signs[index] }));
   const clue = clues.find((item) => !room.evidence.includes(item.sign) && distance(item, player.position) <= radius);
   return clue?.sign || null;
 }
@@ -420,19 +500,23 @@ function distance(a, b) {
   return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 }
 
-function nextStepToward(from, to) {
+function nextStepToward(room, from, to) {
   const options = [
     { x: from.x + 1, y: from.y },
     { x: from.x - 1, y: from.y },
     { x: from.x, y: from.y + 1 },
     { x: from.x, y: from.y - 1 }
-  ].filter((position) => isWalkable(position));
+  ].filter((position) => isWalkableForRows(room.mapRows, position));
 
   return options.sort((a, b) => distance(a, to) - distance(b, to))[0] || from;
 }
 
-function isWalkable(position) {
-  return mapRows[position.y]?.[position.x] && mapRows[position.y][position.x] !== "#";
+function isWalkable(room, position) {
+  return isWalkableForRows(room.mapRows, position);
+}
+
+function isWalkableForRows(rows, position) {
+  return rows[position.y]?.[position.x] && rows[position.y][position.x] !== "#";
 }
 
 function triggerHuntEvent(room, target) {
