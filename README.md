@@ -8,10 +8,12 @@ A realtime browser co-op vampire investigation game — first-person 3D, Phasmop
 - WASD + mouse-look controls with server-validated wall collision
 - **Server-driven hunt loop** (Node/Express + Socket.IO) at 1.5s ticks: vampire AI, threat, fear, moon, payout
 - **4 contracts / levels** — Ashbury Manor, Saint Orla's Hospice, Blackwater Theatre, Greywick Station
+- **5 host-selectable difficulties** — Amateur, Standard, Tense, Aggressive, Nightmare. Each changes starting funds, hunt speed, vampire threshold, evidence count, gear slot count, and reward multiplier
 - **4 loadouts** — Occultist, Sentinel, Medium, Alchemist, each with distinct scan radius and ward cost
+- **9-item gear catalog** — every clue sign requires a specific tool. You only log evidence when the right tool is equipped (hotbar 1-4 to switch)
 - **Multiplayer lobbies** with shareable room codes (`?room=ABCD` invite links)
 - **Persistent leaderboard** (`data/leaderboard.json`) and **per-browser profile XP/level** (`data/profiles.json`)
-- Host-only contract picking + ready-up flow
+- Host-only contract + difficulty picking, ready-up flow
 
 ## Controls
 
@@ -20,9 +22,10 @@ A realtime browser co-op vampire investigation game — first-person 3D, Phasmop
 | WASD | Walk |
 | Shift | Sprint |
 | Mouse | Look around (click canvas to lock pointer) |
-| E | Scan for evidence |
+| 1-4 | Switch equipped gear |
+| E | Scan with currently equipped tool |
 | Q | Burn a ward |
-| F | Seal coffin (must stand on crypt floor with 3 evidence) |
+| F | Seal coffin (must stand on crypt floor with enough evidence) |
 | Tab | Open / close menu |
 | Esc | Release pointer |
 
@@ -51,7 +54,9 @@ Render **Web Service** connected to this GitHub repo.
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /health` | Liveness check (returns room count) |
-| `GET /api/contracts` | List of available contracts and difficulty levels |
+| `GET /api/contracts` | List of available contracts and their levels |
+| `GET /api/difficulties` | Difficulty presets (Amateur → Nightmare) with modifier values |
+| `GET /api/gear` | Catalog of gear items and the clue signs each detects |
 | `GET /api/leaderboard?contract=<id\|all>` | Top scores (sorted by total payout) |
 | `GET /api/profile/:clientId` | XP / level / contracts cleared for one browser profile |
 

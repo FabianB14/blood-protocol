@@ -25,6 +25,31 @@ const loadouts = {
   alchemist: { name: "Alchemist", scanRadius: 2.0, wardCost: 45, kit: ["Hemlock serum", "Coagulant flask", "Mercury vial", "Tonic kit"] }
 };
 
+// Each gear item detects specific clue signs. To log a sign you must be near
+// the clue mote with the matching gear EQUIPPED. Field journal is a utility
+// (no detection but extra scan radius via the Occultist loadout etc).
+const gearCatalog = {
+  sanguine_lens: { id: "sanguine_lens", name: "Sanguine Lens",   detects: ["Claw marks", "Blood mist"],          tag: "UV / blood imaging" },
+  spirit_radio:  { id: "spirit_radio",  name: "Spirit Radio",    detects: ["Possessed voice", "Whispering walls", "Ancient lullaby"], tag: "Captures dead voices" },
+  cold_iron:     { id: "cold_iron",     name: "Cold Iron Rod",   detects: ["Cold breath", "Grave soil"],          tag: "Reads temperature drops" },
+  mirror_shard:  { id: "mirror_shard",  name: "Mirror Shard",    detects: ["No reflection"],                       tag: "Catches missing reflections" },
+  rat_lure:      { id: "rat_lure",      name: "Rat Lure",        detects: ["Rat swarm"],                           tag: "Bait for vermin signs" },
+  wormwood:      { id: "wormwood",      name: "Wormwood Censer", detects: ["Floating dust", "Candle snuff"],       tag: "Smoke reveals movement" },
+  black_salt:    { id: "black_salt",    name: "Black Salt Vial", detects: ["Black veins"],                         tag: "Reacts to corrupted flesh" },
+  uv_lantern:    { id: "uv_lantern",    name: "UV Lantern",      detects: ["Claw marks", "Black veins"],           tag: "Reveals hidden marks" },
+  field_journal: { id: "field_journal", name: "Field Journal",   detects: [],                                       tag: "Utility — tracks evidence" }
+};
+
+const difficulties = {
+  amateur:    { id: "amateur",    name: "Amateur",    funds: 800, moonRate: 1.0, fearRate: 1.2, vampireThreshold: 32, gearSlots: 4, evidenceRequired: 3, rewardMult: 0.9 },
+  standard:   { id: "standard",   name: "Standard",   funds: 640, moonRate: 1.4, fearRate: 1.5, vampireThreshold: 22, gearSlots: 3, evidenceRequired: 3, rewardMult: 1.0 },
+  tense:      { id: "tense",      name: "Tense",      funds: 520, moonRate: 1.8, fearRate: 1.8, vampireThreshold: 16, gearSlots: 3, evidenceRequired: 3, rewardMult: 1.3 },
+  aggressive: { id: "aggressive", name: "Aggressive", funds: 420, moonRate: 2.2, fearRate: 2.2, vampireThreshold: 12, gearSlots: 3, evidenceRequired: 2, rewardMult: 1.6 },
+  nightmare:  { id: "nightmare",  name: "Nightmare",  funds: 320, moonRate: 2.8, fearRate: 2.6, vampireThreshold:  8, gearSlots: 2, evidenceRequired: 2, rewardMult: 2.3 }
+};
+
+const DEFAULT_DIFFICULTY = "standard";
+
 const profileColors = ["teal", "blue", "amber", "red", "violet"];
 const profileTitles = ["New Blood", "Crypt Runner", "Ward Keeper", "Night Medic", "Relic Hunter", "Bloodline Marshal"];
 
@@ -33,7 +58,6 @@ const contracts = [
     id: "ashbury",
     name: "Ashbury Manor",
     objective: "Identify the bloodline, find the sealed crypt, and close the family coffin.",
-    difficulty: "Standard",
     level: 1,
     signs: ["Cold breath", "No reflection", "Claw marks"],
     vampire: "Strigoi",
@@ -56,7 +80,6 @@ const contracts = [
     id: "orla",
     name: "Saint Orla's Hospice",
     objective: "Stabilize the ward, collect patient evidence, and seal the chapel ossuary.",
-    difficulty: "Tense",
     level: 2,
     signs: ["Rat swarm", "Grave soil", "Whispering walls"],
     vampire: "Nosferatu",
@@ -79,7 +102,6 @@ const contracts = [
     id: "blackwater",
     name: "Blackwater Theatre",
     objective: "Trace the midnight performance, mark the stage relics, and bind the backstage coffin.",
-    difficulty: "Aggressive",
     level: 3,
     signs: ["Blood mist", "Candle snuff", "Ancient lullaby"],
     vampire: "Moroaica",
@@ -102,7 +124,6 @@ const contracts = [
     id: "greywick",
     name: "Greywick Station",
     objective: "Search the abandoned platform, map the possessed signal, and seal the baggage vault.",
-    difficulty: "Hard",
     level: 4,
     signs: ["Possessed voice", "Floating dust", "Black veins"],
     vampire: "Vetala",
@@ -145,7 +166,15 @@ app.get("/api/profile/:clientId", (req, res) => {
 });
 
 app.get("/api/contracts", (_req, res) => {
-  res.json(contracts.map((c) => ({ id: c.id, name: c.name, difficulty: c.difficulty, level: c.level })));
+  res.json(contracts.map((c) => ({ id: c.id, name: c.name, level: c.level })));
+});
+
+app.get("/api/gear", (_req, res) => {
+  res.json(Object.values(gearCatalog));
+});
+
+app.get("/api/difficulties", (_req, res) => {
+  res.json(Object.values(difficulties));
 });
 
 function loadJson(file, fallback) {
@@ -195,16 +224,24 @@ function worldToTile(pos) {
   return { x: Math.floor(pos.x / TILE), y: Math.floor(pos.z / TILE) };
 }
 
-function makeRoom(code = makeCode(), contractId) {
+function makeRoom(code = makeCode(), contractId, difficultyId) {
   const contract = contractId ? contractById(contractId) || contracts[0] : contracts[0];
+  const diff = difficulties[difficultyId] || difficulties[DEFAULT_DIFFICULTY];
   return {
     code,
     hostId: null,
     contractId: contract.id,
     contract: contract.name,
     objective: contract.objective,
-    difficulty: contract.difficulty,
     level: contract.level,
+    difficultyId: diff.id,
+    difficulty: diff.name,
+    evidenceRequired: diff.evidenceRequired,
+    gearSlots: diff.gearSlots,
+    vampireThreshold: diff.vampireThreshold,
+    moonRate: diff.moonRate,
+    fearRate: diff.fearRate,
+    rewardMult: diff.rewardMult,
     vampire: contract.vampire,
     signs: contract.signs,
     mapRows: contract.mapRows,
@@ -215,9 +252,9 @@ function makeRoom(code = makeCode(), contractId) {
     phase: "lobby",
     fear: 18,
     moon: 45,
-    funds: 640,
+    funds: diff.funds,
     players: {},
-    logs: [`Lobby ${code} created.`],
+    logs: [`Lobby ${code} created — ${diff.name} difficulty.`],
     evidence: [],
     wards: [],
     vampireTile: { ...contract.vampireStart },
@@ -237,8 +274,11 @@ function publicRoom(room) {
     contractId: room.contractId,
     contract: room.contract,
     objective: room.objective,
-    difficulty: room.difficulty,
     level: room.level,
+    difficultyId: room.difficultyId,
+    difficulty: room.difficulty,
+    evidenceRequired: room.evidenceRequired,
+    gearSlots: room.gearSlots,
     phase: room.phase,
     fear: room.fear,
     moon: room.moon,
@@ -258,7 +298,7 @@ function publicRoom(room) {
     threat: room.threat,
     result: room.result,
     rewards: room.rewards,
-    revealedVampire: room.evidence.length >= 3 || room.phase === "complete" ? room.vampire : "Unknown"
+    revealedVampire: room.evidence.length >= room.evidenceRequired || room.phase === "complete" ? room.vampire : "Unknown"
   };
 }
 
@@ -273,7 +313,9 @@ function publicPlayer(player) {
     yaw: player.yaw,
     alive: player.alive,
     profile: player.profile,
-    level: player.level
+    level: player.level,
+    gear: player.gear,
+    equipped: player.equipped
   };
 }
 
@@ -332,7 +374,6 @@ function applyContract(room, contract) {
   room.contractId = contract.id;
   room.contract = contract.name;
   room.objective = contract.objective;
-  room.difficulty = contract.difficulty;
   room.level = contract.level;
   room.vampire = contract.vampire;
   room.signs = contract.signs;
@@ -343,13 +384,34 @@ function applyContract(room, contract) {
   room.spawn = spawnPosition(contract);
 }
 
-function resetMatch(room, contractId) {
+function applyDifficulty(room, diffId) {
+  const diff = difficulties[diffId] || difficulties[DEFAULT_DIFFICULTY];
+  room.difficultyId = diff.id;
+  room.difficulty = diff.name;
+  room.evidenceRequired = diff.evidenceRequired;
+  room.gearSlots = diff.gearSlots;
+  room.vampireThreshold = diff.vampireThreshold;
+  room.moonRate = diff.moonRate;
+  room.fearRate = diff.fearRate;
+  room.rewardMult = diff.rewardMult;
+  room.funds = diff.funds;
+  // Trim each player's gear to the new slot count
+  Object.values(room.players).forEach((p) => {
+    if (Array.isArray(p.gear) && p.gear.length > diff.gearSlots) {
+      p.gear = p.gear.slice(0, diff.gearSlots);
+      if (p.equipped >= p.gear.length) p.equipped = 0;
+    }
+  });
+}
+
+function resetMatch(room, contractId, difficultyId) {
   const contract = contractId ? contractById(contractId) || contracts[0] : contracts[Math.floor(Math.random() * contracts.length)];
   applyContract(room, contract);
+  if (difficultyId) applyDifficulty(room, difficultyId);
+  else applyDifficulty(room, room.difficultyId || DEFAULT_DIFFICULTY);
   room.phase = "lobby";
   room.fear = 18;
   room.moon = 45;
-  room.funds = 640;
   room.evidence = [];
   room.wards = [];
   room.vampireTile = { ...contract.vampireStart };
@@ -379,13 +441,15 @@ function startHunt(room) {
   room.result = null;
   room.rewards = null;
   room.tickCount = 0;
+  // Pin difficulty defaults applied to current difficulty
+  applyDifficulty(room, room.difficultyId || DEFAULT_DIFFICULTY);
   Object.values(room.players).forEach((p) => {
     p.alive = true;
     p.position = { x: room.spawn.x, y: 1.0, z: room.spawn.z };
   });
   stopHunt(room);
   room.huntInterval = setInterval(() => advanceHunt(room), HUNT_TICK_MS);
-  addLog(room, "The van doors open. The hunt begins.");
+  addLog(room, `The van doors open. ${room.difficulty} hunt begins.`);
 }
 
 function stopHunt(room) {
@@ -399,7 +463,7 @@ io.on("connection", (socket) => {
   socket.on("room:create", (payload = {}, ack) => {
     let code = makeCode();
     while (rooms.has(code)) code = makeCode();
-    const room = makeRoom(code, payload.contractId);
+    const room = makeRoom(code, payload.contractId, payload.difficultyId);
     rooms.set(code, room);
     joinRoom(socket, room, payload);
     ack?.({ ok: true, room: publicRoom(room) });
@@ -432,7 +496,28 @@ io.on("connection", (socket) => {
         title: sanitizeChoice(payload.profile.title, profileTitles, "New Blood")
       };
     }
+    if (Array.isArray(payload.gear)) {
+      const cleaned = [];
+      for (const id of payload.gear) {
+        if (gearCatalog[id] && !cleaned.includes(id)) cleaned.push(id);
+        if (cleaned.length >= room.gearSlots) break;
+      }
+      player.gear = cleaned;
+      if (typeof player.equipped !== "number" || player.equipped >= cleaned.length) player.equipped = 0;
+    }
     emitRoom(room);
+  });
+
+  socket.on("player:equip", (payload = {}) => {
+    const room = getRoom(socket.data.roomCode);
+    if (!room) return;
+    const player = room.players[socket.id];
+    if (!player) return;
+    const idx = Number(payload.slot);
+    if (Number.isInteger(idx) && idx >= 0 && idx < (player.gear?.length || 0)) {
+      player.equipped = idx;
+      // Light broadcast — equipped affects HUD on other clients minimally, so we batch via state on next tick
+    }
   });
 
   socket.on("player:move", (payload = {}) => {
@@ -476,8 +561,22 @@ io.on("connection", (socket) => {
     const room = getRoom(socket.data.roomCode);
     if (!room) return;
     if (!requireHost(socket, room)) return;
-    resetMatch(room, payload.contractId);
-    addLog(room, `New contract loaded: ${room.contract}.`);
+    resetMatch(room, payload.contractId, payload.difficultyId);
+    addLog(room, `New contract loaded: ${room.contract} on ${room.difficulty}.`);
+    emitRoom(room);
+  });
+
+  socket.on("match:difficulty", (payload = {}) => {
+    const room = getRoom(socket.data.roomCode);
+    if (!room) return;
+    if (!requireHost(socket, room)) return;
+    if (room.phase === "hunt") {
+      socket.emit("notice", { type: "error", message: "Difficulty locked once the hunt starts." });
+      return;
+    }
+    if (!difficulties[payload.difficultyId]) return;
+    applyDifficulty(room, payload.difficultyId);
+    addLog(room, `Difficulty set to ${room.difficulty}.`);
     emitRoom(room);
   });
 
@@ -486,17 +585,38 @@ io.on("connection", (socket) => {
     if (!room || room.phase !== "hunt") return;
     const player = room.players[socket.id];
     if (!player || !player.alive) return;
-    const found = findNearbySign(room, player);
-    if (found && !room.evidence.includes(found)) {
-      room.evidence.push(found);
-      room.funds += 90;
-      room.fear = Math.max(0, room.fear - 6);
-      room.threat = Math.min(100, room.threat + 6);
-      addLog(room, `Evidence logged: ${found}.`);
-    } else {
-      room.fear = Math.min(100, room.fear + 3);
-      addLog(room, `${player.name} scans the dark but finds nothing certain.`);
+    const equippedId = player.gear?.[player.equipped || 0];
+    const equipped = equippedId ? gearCatalog[equippedId] : null;
+    if (!equipped) {
+      socket.emit("notice", { type: "error", message: "Equip a tool first (1-4 to switch)." });
+      return;
     }
+    if (equipped.detects.length === 0) {
+      socket.emit("notice", { type: "info", message: `${equipped.name} is a utility — it can't log evidence.` });
+      return;
+    }
+    const nearby = findNearbyClue(room, player);
+    if (!nearby) {
+      room.fear = Math.min(100, room.fear + 2);
+      addLog(room, `${player.name} scans the dark but finds nothing certain.`);
+      emitRoom(room);
+      return;
+    }
+    if (!equipped.detects.includes(nearby.sign)) {
+      socket.emit("notice", { type: "error", message: `${equipped.name} can't read this trace — try another tool.` });
+      room.fear = Math.min(100, room.fear + 1);
+      emitRoom(room);
+      return;
+    }
+    if (room.evidence.includes(nearby.sign)) {
+      socket.emit("notice", { type: "info", message: "Already logged." });
+      return;
+    }
+    room.evidence.push(nearby.sign);
+    room.funds += 90;
+    room.fear = Math.max(0, room.fear - 6);
+    room.threat = Math.min(100, room.threat + 6);
+    addLog(room, `Evidence logged: ${nearby.sign} (via ${equipped.name}).`);
     emitRoom(room);
   });
 
@@ -526,7 +646,7 @@ io.on("connection", (socket) => {
     if (!player) return;
     const tile = worldToTile(player.position);
     const inCrypt = tile.x === room.cryptPosition.x && tile.y === room.cryptPosition.y;
-    if (room.evidence.length >= 3 && inCrypt) {
+    if (room.evidence.length >= room.evidenceRequired && inCrypt) {
       finishMatch(room, true, `${player.name} sealed the coffin. The ${room.vampire} is contained.`);
     } else if (!inCrypt) {
       socket.emit("notice", { type: "error", message: "Stand on the crypt floor to seal it." });
@@ -559,6 +679,13 @@ function joinRoom(socket, room, payload) {
 
   const isFirst = Object.keys(room.players).length === 0;
   const profile = profiles[socket.data.clientId] || { xp: 0, contracts: 0, successes: 0 };
+
+  // Build initial gear: take the client's saved gear, validated, capped to slots
+  const slots = room.gearSlots || difficulties[DEFAULT_DIFFICULTY].gearSlots;
+  let gear = Array.isArray(payload.gear) ? payload.gear.filter((id) => gearCatalog[id]) : [];
+  gear = [...new Set(gear)].slice(0, slots);
+  if (gear.length === 0) gear = defaultGearFor(loadouts[payload.loadout] ? payload.loadout : "occultist").slice(0, slots);
+
   room.players[socket.id] = {
     id: socket.id,
     clientId: socket.data.clientId,
@@ -573,7 +700,9 @@ function joinRoom(socket, room, payload) {
       color: sanitizeChoice(payload.profile?.color, profileColors, "teal"),
       title: sanitizeChoice(payload.profile?.title, profileTitles, "New Blood")
     },
-    level: levelFromXp(profile.xp || 0)
+    level: levelFromXp(profile.xp || 0),
+    gear,
+    equipped: 0
   };
   if (isFirst) room.hostId = socket.id;
   addLog(room, `${room.players[socket.id].name} joined the lobby.`);
@@ -599,9 +728,9 @@ function leaveCurrentRoom(socket) {
 function advanceHunt(room) {
   if (room.phase !== "hunt") return;
   room.tickCount += 1;
-  room.fear = Math.min(100, room.fear + 1.5);
-  room.moon = Math.min(100, room.moon + 1.8);
-  room.threat = Math.min(100, room.threat + 1.6 + room.evidence.length * 0.6);
+  room.fear = Math.min(100, room.fear + (room.fearRate || 1.5));
+  room.moon = Math.min(100, room.moon + (room.moonRate || 1.8));
+  room.threat = Math.min(100, room.threat + 1.4 + room.evidence.length * 0.7);
 
   const players = Object.values(room.players).filter((p) => p.alive);
   if (players.length === 0) {
@@ -615,7 +744,7 @@ function advanceHunt(room) {
   if (warded) {
     room.threat = Math.max(0, room.threat - 6);
     if (room.tickCount % 3 === 0) addLog(room, "A ward flares and the vampire recoils.");
-  } else if (room.threat >= 22 && targetTile) {
+  } else if (room.threat >= (room.vampireThreshold || 22) && targetTile) {
     room.vampireTile = nextStepToward(room, room.vampireTile, targetTile);
     room.vampirePosition = tileToWorld(room.vampireTile);
   }
@@ -690,17 +819,29 @@ function finishMatch(room, success, message) {
   emitRoom(room);
 }
 
-function findNearbySign(room, player) {
+function findNearbyClue(room, player) {
   if (!player?.position) return null;
   const radius = loadouts[player.loadout]?.scanRadius || 2;
   const clues = room.clueSpots.map((spot, i) => ({ world: tileToWorld(spot), sign: room.signs[i] }));
-  const found = clues.find((c) => {
-    if (room.evidence.includes(c.sign)) return false;
+  let best = null;
+  let bestD = Infinity;
+  for (const c of clues) {
     const dx = c.world.x - player.position.x;
     const dz = c.world.z - player.position.z;
-    return Math.sqrt(dx * dx + dz * dz) <= radius;
-  });
-  return found?.sign || null;
+    const d = Math.sqrt(dx * dx + dz * dz);
+    if (d <= radius && d < bestD) { best = c; bestD = d; }
+  }
+  return best;
+}
+
+function defaultGearFor(loadoutId) {
+  switch (loadoutId) {
+    case "occultist": return ["sanguine_lens", "spirit_radio", "cold_iron", "field_journal"];
+    case "sentinel":  return ["uv_lantern", "cold_iron", "black_salt", "rat_lure"];
+    case "medium":    return ["spirit_radio", "mirror_shard", "wormwood", "field_journal"];
+    case "alchemist": return ["black_salt", "wormwood", "cold_iron", "field_journal"];
+    default:          return ["sanguine_lens", "spirit_radio", "cold_iron", "field_journal"];
+  }
 }
 
 function nearestPlayer(from, players) {
@@ -765,19 +906,21 @@ function triggerHuntEvent(room, target) {
 }
 
 function calculateRewards(room, success) {
-  const evidencePay = room.evidence.length * 120;
-  const survivalBonus = success ? Math.max(0, 250 - room.fear) : 0;
-  const speedBonus = success ? Math.max(0, 200 - room.moon) : 0;
-  const levelBonus = success ? room.level * 80 : 0;
+  const mult = room.rewardMult || 1.0;
+  const evidencePay = Math.round(room.evidence.length * 120 * mult);
+  const survivalBonus = success ? Math.round(Math.max(0, 250 - room.fear) * mult) : 0;
+  const speedBonus = success ? Math.round(Math.max(0, 200 - room.moon) * mult) : 0;
+  const levelBonus = success ? Math.round(room.level * 80 * mult) : 0;
   const total = Math.round(room.funds + evidencePay + survivalBonus + speedBonus + levelBonus);
   return {
     success,
     evidencePay,
-    survivalBonus: Math.round(survivalBonus),
-    speedBonus: Math.round(speedBonus),
+    survivalBonus,
+    speedBonus,
     levelBonus,
+    rewardMult: mult,
     total,
-    rank: total >= 1400 ? "S" : total >= 1100 ? "A" : total >= 850 ? "B" : total >= 600 ? "C" : "D"
+    rank: total >= 1800 ? "S" : total >= 1400 ? "A" : total >= 1050 ? "B" : total >= 750 ? "C" : "D"
   };
 }
 
