@@ -656,19 +656,68 @@
     }
 
     // ---------- Build map ----------
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x222428, roughness: 0.92, metalness: 0.05 });
+    // Materials are mutated in place by loadTextures() once /api/textures responds.
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0xb4b1aa, roughness: 0.92, metalness: 0.02 });
     const wallTopMat = new THREE.MeshStandardMaterial({ color: 0x16181b, roughness: 0.95 });
-    const floorMat = new THREE.MeshStandardMaterial({ color: 0x14171a, roughness: 1.0 });
-    const cryptFloorMat = new THREE.MeshStandardMaterial({ color: 0x4a1923, roughness: 0.7, emissive: 0x300a0e, emissiveIntensity: 0.6 });
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0xbcb6a8, roughness: 1.0 });
+    const cryptFloorMat = new THREE.MeshStandardMaterial({ color: 0xb6664a, roughness: 0.75, emissive: 0x3a0d12, emissiveIntensity: 0.45 });
     const safeFloorMat = new THREE.MeshStandardMaterial({ color: 0x1c3a32, roughness: 0.85, emissive: 0x0a261d, emissiveIntensity: 0.5 });
     const vaultFloorMat = new THREE.MeshStandardMaterial({ color: 0x3a2c12, roughness: 0.85, emissive: 0x261b08, emissiveIntensity: 0.5 });
-    const ceilMat = new THREE.MeshStandardMaterial({ color: 0x0a0c10, roughness: 1.0, side: THREE.DoubleSide });
+    const ceilMat = new THREE.MeshStandardMaterial({ color: 0x8a8780, roughness: 1.0, side: THREE.DoubleSide });
+
+    // Stores the texture-set maps per surface once /api/textures resolves, so
+    // buildMap can set per-mesh tiling (repeat scales with map dimensions).
+    const textureRepeat = { wall: [1, 1], floor: [1, 1], crypt: [1, 1], ceiling: [1, 1] };
+
+    async function loadTextures() {
+      let sets;
+      try {
+        const res = await fetch('/api/textures');
+        sets = await res.json();
+      } catch (_e) { return; }
+
+      const loader = new THREE.TextureLoader();
+      const applyMap = (url, isColor) => {
+        if (!url) return null;
+        const t = loader.load(url);
+        if (isColor) t.colorSpace = THREE.SRGBColorSpace;
+        t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        return t;
+      };
+      const wireMaterial = (mat, def) => {
+        if (!def) return;
+        if (def.color) mat.map = applyMap(def.color, true);
+        if (def.normal) mat.normalMap = applyMap(def.normal, false);
+        if (def.roughness) mat.roughnessMap = applyMap(def.roughness, false);
+        mat.color.set(0xffffff); // let the texture's albedo come through unmodified
+        mat.needsUpdate = true;
+      };
+      wireMaterial(wallMat, sets.wall);
+      wireMaterial(floorMat, sets.floor);
+      wireMaterial(cryptFloorMat, sets.crypt);
+      wireMaterial(ceilMat, sets.ceiling);
+      if (sets.crypt) cryptFloorMat.emissiveIntensity = 0.35; // keep some red glow as a marker
+    }
+
+    function applyTextureRepeat(mat, rx, ry) {
+      ['map', 'normalMap', 'roughnessMap'].forEach((slot) => {
+        if (mat[slot]) mat[slot].repeat.set(rx, ry);
+      });
+    }
 
     function buildMap(room) {
       clearWorld();
       const rows = room.mapRows;
       const w = rows[0].length;
       const h = rows.length;
+
+      // Tile textures so 1 repeat ≈ 1 grid cell (4 world units). Walls and the
+      // crypt tile are smaller surfaces so they get extra repeats for detail.
+      applyTextureRepeat(floorMat, w, h);
+      applyTextureRepeat(ceilMat, w, h);
+      applyTextureRepeat(wallMat, 2, 2);
+      applyTextureRepeat(cryptFloorMat, 2, 2);
 
       // Floor (large quad covering all)
       const floorGeo = new THREE.PlaneGeometry(w * TILE, h * TILE);
@@ -1545,6 +1594,17 @@
     // ---------- Boot ----------
     Promise.all([loadContracts(), loadGear(), loadDifficulties(), loadOwnProfile()]).then(() => {
       renderHotbar();
+    });
+    loadTextures().then(() => {
+      if (roomState) {
+        // Re-apply per-map repeat values once the textures have URLs assigned.
+        const w = roomState.mapRows[0].length;
+        const h = roomState.mapRows.length;
+        applyTextureRepeat(floorMat, w, h);
+        applyTextureRepeat(ceilMat, w, h);
+        applyTextureRepeat(wallMat, 2, 2);
+        applyTextureRepeat(cryptFloorMat, 2, 2);
+      }
     });
     const params = new URLSearchParams(location.search);
     const roomFromUrl = params.get('room');

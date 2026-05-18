@@ -177,6 +177,35 @@ app.get("/api/difficulties", (_req, res) => {
   res.json(Object.values(difficulties));
 });
 
+const TEX_SURFACES = ["wall", "floor", "crypt", "ceiling"];
+const TEX_SUFFIXES = {
+  color: "_Color",
+  normal: "_NormalGL",
+  roughness: "_Roughness",
+  ao: "_AmbientOcclusion"
+};
+
+function scanTextures() {
+  const out = {};
+  for (const surface of TEX_SURFACES) {
+    const dir = path.join(PUBLIC_DIR, "textures", surface);
+    if (!fs.existsSync(dir)) { out[surface] = null; continue; }
+    let files;
+    try { files = fs.readdirSync(dir); } catch (_e) { out[surface] = null; continue; }
+    const imgs = files.filter((f) => /\.(jpg|jpeg|png)$/i.test(f));
+    const maps = {};
+    for (const [key, suffix] of Object.entries(TEX_SUFFIXES)) {
+      const match = imgs.find((f) => f.includes(suffix));
+      if (match) maps[key] = `/textures/${surface}/${encodeURIComponent(match)}`;
+    }
+    out[surface] = maps.color ? maps : null;
+  }
+  return out;
+}
+
+let cachedTextures = scanTextures();
+app.get("/api/textures", (_req, res) => res.json(cachedTextures));
+
 function loadJson(file, fallback) {
   try {
     if (!fs.existsSync(file)) return fallback;
