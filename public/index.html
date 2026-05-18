@@ -353,14 +353,14 @@
 
     .touch-actions {
       position: fixed; right: 18px; bottom: 110px;
-      display: grid; grid-template-columns: 72px 72px; gap: 10px;
+      display: grid; grid-template-columns: repeat(2, 64px); gap: 8px;
     }
     .touch-btn {
-      width: 72px; height: 72px;
+      width: 64px; height: 64px;
       border-radius: 50%;
       border: 2px solid rgba(255,255,255,.25);
       background: rgba(0,0,0,.4); color: var(--ink);
-      font-weight: 900; font-size: 18px;
+      font-weight: 900; font-size: 16px;
       backdrop-filter: blur(6px);
       touch-action: manipulation;
     }
@@ -485,7 +485,8 @@
         <kbd>1-4</kbd> tool
         <kbd>E</kbd> scan
         <kbd>Q</kbd> ward
-        <kbd>F</kbd> seal
+        <kbd>F</kbd> banish
+        <kbd>B</kbd> light
         <kbd>J</kbd> journal
         <kbd>TAB</kbd> menu
       </div>
@@ -499,9 +500,10 @@
       </div>
       <div class="touch-actions">
         <button class="touch-btn" id="touchSprint" aria-label="Sprint">RUN</button>
+        <button class="touch-btn" id="touchLight" aria-label="Toggle flashlight">LIGHT</button>
         <button class="touch-btn" id="touchScan" aria-label="Scan">E</button>
         <button class="touch-btn" id="touchWard" aria-label="Ward">Q</button>
-        <button class="touch-btn" id="touchSeal" aria-label="Seal">F</button>
+        <button class="touch-btn" id="touchSeal" aria-label="Banish">F</button>
       </div>
       <div class="look-area" id="lookArea"></div>
     </div>
@@ -513,6 +515,20 @@
     <h1 id="deathTitle">CONTRACT FAILED</h1>
     <div id="deathSub" style="color:var(--muted); font-size: 14px;">Open the menu to load a new contract.</div>
     <button class="primary" onclick="openMenu('lobby')">Return to Lobby</button>
+  </div>
+
+  <!-- Banish modal: shown when the player is at the crypt with enough evidence -->
+  <div class="modal-back" id="banishBack">
+    <div class="modal" style="max-width: 720px;">
+      <div class="modal-head">
+        <h2>Begin the Banishment</h2>
+        <span class="pill">Pick the bloodline</span>
+      </div>
+      <div id="banishBody" style="display:grid; gap:10px;"></div>
+      <div class="modal-actions">
+        <button class="ghost" id="banishCancelBtn">Cancel</button>
+      </div>
+    </div>
   </div>
 
   <!-- Main modal -->
@@ -747,6 +763,14 @@
     camera.add(flashlight.target);
     flashlight.target.position.set(0, 0, -1);
 
+    let flashlightOn = true;
+    function toggleFlashlight() {
+      flashlightOn = !flashlightOn;
+      flashlight.intensity = flashlightOn ? 4.0 : 0.0;
+      socket.emit('player:flashlight', { on: flashlightOn });
+      showNotice(flashlightOn ? 'Flashlight on.' : 'Flashlight off.');
+    }
+
     // World containers (cleared each map)
     const worldGroup = new THREE.Group();
     scene.add(worldGroup);
@@ -968,6 +992,31 @@
       });
     }
 
+    let relicMesh = null;
+    function syncRelic(room) {
+      const relic = room.relic;
+      const visible = relic && !relic.claimed;
+      if (!visible) {
+        if (relicMesh) { worldGroup.remove(relicMesh); relicMesh = null; }
+        return;
+      }
+      if (!relicMesh) {
+        const group = new THREE.Group();
+        const gold = new THREE.Mesh(
+          new THREE.IcosahedronGeometry(0.32, 0),
+          new THREE.MeshStandardMaterial({ color: 0xf6d77a, emissive: 0xc78b1a, emissiveIntensity: 1.4, roughness: 0.3, metalness: 0.85 })
+        );
+        gold.position.y = 1.0;
+        const halo = new THREE.PointLight(0xffd58a, 1.6, 5);
+        halo.position.y = 1.0;
+        group.add(gold);
+        group.add(halo);
+        relicMesh = group;
+        worldGroup.add(group);
+      }
+      relicMesh.position.set(relic.world.x, 0, relic.world.z);
+    }
+
     const colorHex = {
       teal: 0x55c7a6,
       blue: 0x6ca7d8,
@@ -1173,12 +1222,13 @@
     window.addEventListener('keydown', (e) => {
       const inField = ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName);
       if (e.code === 'Tab' && !inField) { e.preventDefault(); toggleMenu(); return; }
-      if (modalOpen() || inField) return;
+      if (modalOpen() || banishOpen() || inField) return;
       keys.add(e.code);
       if (e.code === 'KeyE') socket.emit('match:scan');
       if (e.code === 'KeyQ') socket.emit('match:ward');
       if (e.code === 'KeyF') socket.emit('match:seal');
       if (e.code === 'KeyJ') openMenu('journal');
+      if (e.code === 'KeyB') toggleFlashlight();
       if (e.code.startsWith('Digit')) {
         const n = parseInt(e.code.slice(5), 10);
         if (n >= 1 && n <= (local.gear?.length || 0)) {
@@ -1303,6 +1353,7 @@
       wireTap('touchScan', () => socket.emit('match:scan'));
       wireTap('touchWard', () => socket.emit('match:ward'));
       wireTap('touchSeal', () => socket.emit('match:seal'));
+      wireTap('touchLight', toggleFlashlight);
       const sprintBtn = $('touchSprint');
       const setSprint = (on) => {
         touchInput.sprint = on;
@@ -1466,6 +1517,7 @@
         vampireMesh = null;
       }
       syncWards(room);
+      syncRelic(room);
       syncPlayers(room);
 
       const me = room.players.find((p) => p.id === socket.id);
@@ -1516,6 +1568,10 @@
     });
 
     socket.on('notice', (n) => showNotice(n.message));
+
+    socket.on('match:banish-prompt', ({ suspects }) => {
+      openBanishModal(suspects);
+    });
     socket.on('leaderboard:update', () => {
       if (currentTab === 'leaderboard') loadLeaderboard();
     });
@@ -1650,6 +1706,46 @@
       modalBack.classList.remove('open');
     }
     function toggleMenu() { modalOpen() ? closeModal() : openMenu(currentTab); }
+
+    // ---------- Banish modal ----------
+    const banishBack = $('banishBack');
+    function banishOpen() { return banishBack.classList.contains('open'); }
+    function closeBanishModal() { banishBack.classList.remove('open'); }
+    function openBanishModal(suspects) {
+      controls.unlock();
+      const evNames = (roomState?.evidence || []).map((id) => evidenceById[id]?.name || id).join(', ');
+      const cards = suspects.map((s) => {
+        const r = rituals[s.id];
+        const reqs = r ? `<small style="color:var(--muted)">${r.requirements.map(escapeHtml).join(' / ')}</small>` : '';
+        const hint = r ? `<small style="color:var(--amber)">${escapeHtml(r.hint)}</small>` : '';
+        return `<div class="loadout-card" data-banish="${s.id}" style="cursor:pointer;">
+          <strong>${escapeHtml(s.name)}${r ? ` <small>/ ${escapeHtml(r.name)}</small>` : ''}</strong>
+          ${reqs}
+          ${hint}
+          <div style="margin-top:6px; display:flex; justify-content:flex-end;">
+            <button class="primary" style="min-height:32px; padding:4px 12px;">Banish</button>
+          </div>
+        </div>`;
+      }).join('');
+      $('banishBody').innerHTML = `
+        <p style="color:var(--muted); font-size:13px; margin:0;">
+          Evidence on record: <strong style="color:var(--ink)">${escapeHtml(evNames) || '(none)'}</strong>.
+          Pick the species you believe is responsible — pick wrong and the contract fails.
+        </p>
+        ${suspects.length === 0
+          ? '<p style="color:var(--blood);">No suspects match your evidence. Collect more clues first.</p>'
+          : cards}
+      `;
+      banishBack.classList.add('open');
+      document.querySelectorAll('[data-banish]').forEach((el) => {
+        el.addEventListener('click', () => {
+          const id = el.dataset.banish;
+          closeBanishModal();
+          socket.emit('match:banish', { vampireId: id });
+        });
+      });
+    }
+    $('banishCancelBtn').addEventListener('click', closeBanishModal);
     window.openMenu = openMenu;
 
     $('menuBtn').addEventListener('click', () => openMenu(currentTab));
@@ -1694,6 +1790,16 @@
         const matchesAllConfirmed = [...confirmed].every((c) => v.evidence.includes(c));
         const isRevealed = revealed === v.id;
         const dimmed = !matchesAllConfirmed;
+        const r = rituals[v.id];
+        // Show ritual requirements either when the suspect is narrowed to one
+        // (the player knows it's this species) or when the server has revealed it.
+        const showRitual = matchesAllConfirmed && (possibleVampires.length === 1 || isRevealed) && r;
+        const ritualBlock = showRitual ? `
+          <div style="margin-top:6px; padding:6px 8px; background:rgba(225,169,87,.1); border:1px solid rgba(225,169,87,.3); border-radius:6px;">
+            <small style="color:var(--amber); font-weight:900;">Ritual: ${escapeHtml(r.name)}</small>
+            <small style="display:block; color:var(--muted);">${r.requirements.map(escapeHtml).join(' / ')}</small>
+            <small style="display:block; color:var(--mint);">${escapeHtml(r.hint)}</small>
+          </div>` : '';
         return `<div class="loadout-card ${isRevealed ? 'selected' : ''}" style="opacity:${dimmed ? .35 : 1}">
           <strong>${escapeHtml(v.name)}${isRevealed ? ' <small style="color:var(--amber)">/ this match’s species</small>' : ''}</strong>
           <small>Evidence: ${v.evidence.map((id) => {
@@ -1701,6 +1807,7 @@
             const got = confirmed.has(id);
             return `<span style="${got ? 'color:var(--mint); font-weight:900;' : 'color:var(--muted);'}">${escapeHtml(name)}</span>`;
           }).join(' / ')}</small>
+          ${ritualBlock}
         </div>`;
       }).join('');
     }
@@ -1976,6 +2083,14 @@
       } catch (_e) {}
     }
 
+    let rituals = {};
+    async function loadRituals() {
+      try {
+        const res = await fetch('/api/rituals');
+        rituals = await res.json();
+      } catch (_e) {}
+    }
+
     // Profile input bindings
     $('playerName').value = local.name;
     $('profileTitle').value = local.profile.title;
@@ -2034,6 +2149,7 @@
       loadDifficulties(),
       loadEvidenceTypes(),
       loadVampires(),
+      loadRituals(),
       loadOwnProfile()
     ]).then(() => {
       renderHotbar();

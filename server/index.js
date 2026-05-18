@@ -69,6 +69,112 @@ const vampireCatalog = [
 
 const vampireById = (id) => vampireCatalog.find((v) => v.id === id);
 
+// Per-species banishment rituals. Each entry maps a vampireId to a
+// human-facing requirements list (shown in the journal once the species is
+// identified) plus a server-side check that runs at banish time.
+//
+// Player state used by these checks:
+//   player.flashlight   — boolean, default true (client toggles with B)
+//   player.hasRelic     — boolean, default false (auto-pickup on the vault tile)
+//   player.lastMoveAt   — ms timestamp of the last accepted player:move
+//
+// Room state used:
+//   room.wards          — array of placed ward tiles
+//   room.threat         — current threat percent
+//   room.cryptPosition  — tile coords of the crypt
+const RITUAL_STILL_MS = 3000;
+function ritualStillEnough(player) {
+  return player.lastMoveAt && (Date.now() - player.lastMoveAt) >= RITUAL_STILL_MS;
+}
+function tileEq(a, b) { return a.x === b.x && a.y === b.y; }
+function huntersOnTile(room, tile) {
+  return Object.values(room.players).filter((p) => p.alive && tileEq(worldToTile(p.position), tile));
+}
+function wardsNearCrypt(room, radius) {
+  const c = room.cryptPosition;
+  return room.wards.filter((w) => Math.abs(w.x - c.x) + Math.abs(w.y - c.y) <= radius).length;
+}
+
+const rituals = {
+  nosferatu: {
+    name: "Mirror and Salt",
+    requirements: ["Turn your flashlight off before sealing."],
+    check: (room, player) => !player.flashlight || "Your flashlight is still burning.",
+    hint: "B: toggle flashlight."
+  },
+  noble: {
+    name: "Personal Effect",
+    requirements: ["Pick up the Noble's relic from the vault.", "Seal during a midnight pulse (every full 25%-moon mark)."],
+    check: (room, player) => {
+      if (!player.hasRelic) return "You don't carry the relic.";
+      // Midnight pulse: moon% mod 25 within 4 (so a 4% wide window every 25%)
+      if ((room.moon % 25) > 4) return "It is not yet midnight — wait for the moon's pulse.";
+      return true;
+    },
+    hint: "Walk over the glowing relic at the vault floor."
+  },
+  shade_stalker: {
+    name: "Floodlight",
+    requirements: ["Burn 2 or more wards within 2 tiles of the crypt before sealing."],
+    check: (room) => wardsNearCrypt(room, 2) >= 2 || "Not enough wards flooding the crypt.",
+    hint: "Place wards (Q) on adjacent tiles to the crypt."
+  },
+  blood_alchemist: {
+    name: "Shatter the Focus",
+    requirements: ["Burn a ward directly on the crypt tile."],
+    check: (room) => room.wards.some((w) => tileEq(w, room.cryptPosition)) || "No ward is burning on the crypt itself.",
+    hint: "Stand on the crypt and press Q before F."
+  },
+  mist_walker: {
+    name: "Still the Air",
+    requirements: ["Stand still in the crypt for 3 seconds, then seal."],
+    check: (_room, player) => ritualStillEnough(player) || "Hold position for a few more seconds.",
+    hint: "Stop moving for ~3 seconds before pressing F."
+  },
+  chronovampire: {
+    name: "Synchronised Vow",
+    requirements: ["Have at least 2 hunters standing on the crypt."],
+    check: (room) => huntersOnTile(room, room.cryptPosition).length >= 2 || "Another hunter must join you at the crypt.",
+    hint: "Coordinate with a teammate — both stand on the crypt."
+  },
+  psychic_leech: {
+    name: "Unified Focus",
+    requirements: ["All living hunters must be on the crypt at the moment of sealing."],
+    check: (room) => {
+      const alive = Object.values(room.players).filter((p) => p.alive);
+      const here = huntersOnTile(room, room.cryptPosition);
+      return here.length === alive.length || `${alive.length - here.length} hunter(s) still scattered.`;
+    },
+    hint: "Wait until the whole team is at the crypt."
+  },
+  feral: {
+    name: "Cage and Calm",
+    requirements: ["Drop the vampire's threat to 20% or lower before sealing."],
+    check: (room) => room.threat <= 20 || "The beast is still too agitated — burn more wards.",
+    hint: "Wards lower threat. Keep placing them until the meter falls."
+  },
+  tech_hybrid: {
+    name: "EMP Silence",
+    requirements: ["Turn your flashlight off.", "No wards may be burning when you seal."],
+    check: (room, player) => {
+      if (player.flashlight) return "Your flashlight is still on.";
+      if (room.wards.length > 0) return "Wards are interfering — they must all be extinguished.";
+      return true;
+    },
+    hint: "B turns the flashlight off. Avoid placing wards this match."
+  },
+  dreamweaver: {
+    name: "Lucid Vigil",
+    requirements: ["Stand still in the crypt for 3 seconds.", "Flashlight must be off (no waking light)."],
+    check: (_room, player) => {
+      if (player.flashlight) return "Lucid only in darkness — turn off your flashlight.";
+      if (!ritualStillEnough(player)) return "Hold your position a little longer.";
+      return true;
+    },
+    hint: "Flashlight off, hold still on the crypt."
+  }
+};
+
 const difficulties = {
   amateur:    { id: "amateur",    name: "Amateur",    funds: 800, moonRate: 1.0, fearRate: 1.2, vampireThreshold: 32, gearSlots: 4, evidenceRequired: 3, rewardMult: 0.9 },
   standard:   { id: "standard",   name: "Standard",   funds: 640, moonRate: 1.4, fearRate: 1.5, vampireThreshold: 22, gearSlots: 3, evidenceRequired: 3, rewardMult: 1.0 },
@@ -269,6 +375,19 @@ app.get("/api/vampires", (_req, res) => {
   res.json(vampireCatalog.map((v) => ({ id: v.id, name: v.name, evidence: v.evidence })));
 });
 
+app.get("/api/rituals", (_req, res) => {
+  // The journal needs to display ritual requirements as soon as a suspect is
+  // narrowed down; safe to publish — players still need the evidence to know
+  // which species they're targeting.
+  res.json(Object.fromEntries(
+    Object.entries(rituals).map(([id, r]) => [id, {
+      name: r.name,
+      requirements: r.requirements,
+      hint: r.hint
+    }])
+  ));
+});
+
 const TEX_SURFACES = ["wall", "floor", "crypt", "ceiling"];
 const TEX_SUFFIXES = {
   color: "_Color",
@@ -354,6 +473,23 @@ function spawnPosition(contract) {
   return tileToWorld({ x: 1, y: 1 });
 }
 
+function computeRelicSpawn(room) {
+  // Place the relic on a vault (K) tile if the map has one; otherwise fall
+  // back to the safe (S) tile. The relic is what Vampiric Noble and other
+  // rituals require — having one always on the map keeps the mechanic alive
+  // even if the chosen vampire doesn't need it.
+  const rows = room.mapRows;
+  for (let y = 0; y < rows.length; y += 1) {
+    for (let x = 0; x < rows[y].length; x += 1) {
+      if (rows[y][x] === "K") {
+        const w = tileToWorld({ x, y });
+        return { tile: { x, y }, world: w, claimed: false };
+      }
+    }
+  }
+  return null;
+}
+
 function tileToWorld(tile) {
   return { x: (tile.x + 0.5) * TILE, z: (tile.y + 0.5) * TILE };
 }
@@ -432,6 +568,7 @@ function publicRoom(room) {
     tile: TILE,
     evidence: room.evidence,
     wards: room.wards,
+    relic: room.relic,
     vampirePosition: room.vampirePosition,
     vampireTile: room.vampireTile,
     threat: room.threat,
@@ -456,7 +593,9 @@ function publicPlayer(player) {
     profile: player.profile,
     level: player.level,
     gear: player.gear,
-    equipped: player.equipped
+    equipped: player.equipped,
+    flashlight: player.flashlight,
+    hasRelic: player.hasRelic
   };
 }
 
@@ -603,7 +742,13 @@ function startHunt(room) {
   Object.values(room.players).forEach((p) => {
     p.alive = true;
     p.position = { x: room.spawn.x, y: 1.0, z: room.spawn.z };
+    p.flashlight = true;
+    p.hasRelic = false;
+    p.lastMoveAt = Date.now();
   });
+  // Reset and seed the per-match relic. Spawned at the vault tile (K) on the
+  // map; auto-pickup when any hunter walks over it.
+  room.relic = computeRelicSpawn(room);
   stopHunt(room);
   room.huntInterval = setInterval(() => advanceHunt(room), HUNT_TICK_MS);
   addLog(room, `The van doors open. ${room.difficulty} hunt begins.`);
@@ -695,8 +840,33 @@ io.on("connection", (socket) => {
       socket.emit("player:reject", { position: player.position, yaw: player.yaw });
       return;
     }
+    // Track motion for the "stand still" ritual conditions. Only count
+    // movement that crosses a meaningful threshold so micro-jitter from
+    // mouse-look doesn't keep resetting the timer.
+    const dx = next.x - player.position.x;
+    const dz = next.z - player.position.z;
+    if ((dx * dx + dz * dz) > 0.04) player.lastMoveAt = Date.now();
     player.position = next;
     player.yaw = yaw;
+
+    // Auto-pickup relic when within range
+    if (room.relic && !room.relic.claimed) {
+      const rd = Math.hypot(next.x - room.relic.world.x, next.z - room.relic.world.z);
+      if (rd < 1.5) {
+        room.relic.claimed = true;
+        player.hasRelic = true;
+        addLog(room, `${player.name} pocketed the relic from the vault.`);
+        emitRoom(room);
+      }
+    }
+  });
+
+  socket.on("player:flashlight", (payload = {}) => {
+    const room = getRoom(socket.data.roomCode);
+    if (!room) return;
+    const player = room.players[socket.id];
+    if (!player) return;
+    player.flashlight = !!payload.on;
   });
 
   socket.on("match:start", () => {
@@ -793,6 +963,9 @@ io.on("connection", (socket) => {
     emitRoom(room);
   });
 
+  // Step 1: the client presses F at the crypt with enough evidence. We
+  // respond with the list of suspects that still match the confirmed evidence
+  // so the client can show its banish picker.
   socket.on("match:seal", () => {
     const room = getRoom(socket.data.roomCode);
     if (!room || room.phase !== "hunt") return;
@@ -800,15 +973,70 @@ io.on("connection", (socket) => {
     if (!player) return;
     const tile = worldToTile(player.position);
     const inCrypt = tile.x === room.cryptPosition.x && tile.y === room.cryptPosition.y;
-    if (room.evidence.length >= room.evidenceRequired && inCrypt) {
-      finishMatch(room, true, `${player.name} sealed the coffin. The ${room.vampire} is contained.`);
-    } else if (!inCrypt) {
+    if (!inCrypt) {
       socket.emit("notice", { type: "error", message: "Stand on the crypt floor to seal it." });
-    } else {
-      room.fear = Math.min(100, room.fear + 10);
-      addLog(room, `${player.name} tried to seal too early. The manor pushes back.`);
-      emitRoom(room);
+      return;
     }
+    if (room.evidence.length < room.evidenceRequired) {
+      socket.emit("notice", { type: "error", message: `Need ${room.evidenceRequired} evidence first.` });
+      return;
+    }
+    const confirmed = room.evidence;
+    const suspects = vampireCatalog
+      .filter((v) => confirmed.every((c) => v.evidence.includes(c)))
+      .map((v) => ({ id: v.id, name: v.name }));
+    socket.emit("match:banish-prompt", { suspects });
+  });
+
+  // Step 2: the client submits a banishment attempt with a chosen species id.
+  // Success requires (a) the pick matches the actual vampire AND (b) the
+  // species-specific ritual conditions are met.
+  socket.on("match:banish", (payload = {}) => {
+    const room = getRoom(socket.data.roomCode);
+    if (!room || room.phase !== "hunt") return;
+    const player = room.players[socket.id];
+    if (!player) return;
+    const tile = worldToTile(player.position);
+    if (!tileEq(tile, room.cryptPosition)) {
+      socket.emit("notice", { type: "error", message: "Step onto the crypt before banishing." });
+      return;
+    }
+    if (room.evidence.length < room.evidenceRequired) {
+      socket.emit("notice", { type: "error", message: `Need ${room.evidenceRequired} evidence first.` });
+      return;
+    }
+    const pickId = String(payload.vampireId || "");
+    const pick = vampireById(pickId);
+    if (!pick) {
+      socket.emit("notice", { type: "error", message: "No such bloodline." });
+      return;
+    }
+    // Validate the pick is consistent with the confirmed evidence — keeps the
+    // client honest if a tampered request comes in.
+    if (!room.evidence.every((c) => pick.evidence.includes(c))) {
+      socket.emit("notice", { type: "error", message: "Your evidence does not match that species." });
+      return;
+    }
+
+    if (pick.id !== room.vampireId) {
+      // Wrong species — banishment fails the whole contract, Phasmo-style.
+      const correct = vampireById(room.vampireId);
+      finishMatch(room, false, `${player.name} performed the rite for the ${pick.name}, but it was a ${correct.name}.`);
+      return;
+    }
+
+    // Right species — check the ritual conditions for it.
+    const ritual = rituals[pick.id];
+    const result = ritual ? ritual.check(room, player) : true;
+    if (result !== true) {
+      // Ritual unmet — punish but allow another attempt.
+      room.fear = Math.min(100, room.fear + 12);
+      socket.emit("notice", { type: "error", message: `Ritual incomplete: ${result}` });
+      addLog(room, `${player.name} began the rite but the ${pick.name} resisted: ${result}`);
+      emitRoom(room);
+      return;
+    }
+    finishMatch(room, true, `${player.name} banished the ${pick.name} with the ${ritual.name} rite.`);
   });
 
   socket.on("match:chat", (payload = {}) => {
@@ -862,7 +1090,10 @@ function joinRoom(socket, room, payload) {
     },
     level: levelFromXp(profile.xp || 0),
     gear,
-    equipped: 0
+    equipped: 0,
+    flashlight: true,
+    hasRelic: false,
+    lastMoveAt: Date.now()
   };
   if (isFirst) room.hostId = socket.id;
   addLog(room, `${room.players[socket.id].name} joined the lobby.`);
