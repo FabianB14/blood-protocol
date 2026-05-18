@@ -328,6 +328,43 @@
     .death-overlay.show { display: flex; }
     .death-overlay h1 { font-size: 42px; margin: 0; color: var(--blood); letter-spacing: .08em; }
 
+    /* Title screen — shown above everything on first boot */
+    .title-screen {
+      width: min(560px, 96vw);
+      padding: 36px 28px;
+      display: grid; place-items: center; gap: 18px;
+      background: linear-gradient(180deg, rgba(15,17,20,.95), rgba(8,9,11,.98));
+      border: 1px solid rgba(225,169,87,.3);
+      border-radius: 14px;
+      text-align: center;
+    }
+    .title-mark {
+      width: 84px; height: 84px;
+      border-radius: 16px;
+      display: grid; place-items: center;
+      background: linear-gradient(145deg, rgba(183,53,53,.55), rgba(225,169,87,.18));
+      border: 1px solid rgba(225,169,87,.55);
+      font-size: 42px; font-weight: 900; color: var(--amber);
+      box-shadow: 0 0 36px rgba(225,169,87,.25);
+    }
+    .title-game { margin: 0; font-size: 28px; color: var(--ink); letter-spacing: .04em; }
+    .title-sub { margin: 0; color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .14em; }
+    .title-actions { display: grid; grid-template-columns: 1fr; gap: 8px; width: min(280px, 80%); margin-top: 14px; }
+    .title-actions button { min-height: 44px; font-size: 14px; }
+    .title-version { color: var(--muted); font-size: 11px; max-width: 380px; line-height: 1.5; margin: 12px 0 0; }
+
+    /* Settings sliders */
+    .slider-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 6px 0; }
+    .slider-row label { font-size: 13px; color: var(--ink); }
+    .slider-row input[type=range] { width: 200px; }
+    .slider-row .val { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; min-width: 38px; text-align: right; }
+    .keybind-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 6px 0; font-size: 13px; }
+    .keybind-row kbd {
+      display: inline-block; padding: 2px 8px;
+      background: rgba(255,255,255,.1); border: 1px solid var(--line); border-radius: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+    }
+
     /* Touch controls: hidden by default, enabled when JS detects touch */
     .touch-layer { display: none; position: fixed; inset: 0; pointer-events: none; z-index: 6; }
     .touch-layer.active { display: block; }
@@ -538,6 +575,23 @@
     </div>
   </div>
 
+  <!-- Title screen — first thing the player sees -->
+  <div class="modal-back" id="titleBack">
+    <div class="title-screen">
+      <div class="title-art">
+        <div class="title-mark">V</div>
+      </div>
+      <h1 class="title-game">Nightfall: Hunters' Crusade</h1>
+      <p class="title-sub">A co-op vampire investigation</p>
+      <div class="title-actions">
+        <button class="primary" id="titleStartBtn">Start Hunt</button>
+        <button class="secondary" id="titleSettingsBtn">Settings</button>
+        <button class="ghost" id="titleHowtoBtn">How to Play</button>
+      </div>
+      <p class="title-version">Build 0.1 — drag and drop your hunter / tent / house / vampire meshes into public/models/</p>
+    </div>
+  </div>
+
   <!-- Main modal -->
   <div class="modal-back" id="modalBack">
     <div class="modal">
@@ -549,6 +603,7 @@
           <div class="tab" data-tab="loadout">Loadout</div>
           <div class="tab" data-tab="leaderboard">Leaderboard</div>
           <div class="tab" data-tab="journal">Field Journal</div>
+          <div class="tab" data-tab="settings">Settings</div>
           <div class="tab" data-tab="howto">How to Play</div>
         </div>
       </div>
@@ -661,6 +716,66 @@
         <p style="color:var(--muted); font-size:13px; margin:0 0 14px;">Each bloodline leaves a unique trio of evidence. Confirm signs in the field to narrow the suspects.</p>
         <div id="journalSummary" style="margin-bottom: 14px;"></div>
         <div class="grid-2" id="journalGrid"></div>
+      </div>
+
+      <!-- Settings -->
+      <div id="tab-settings" class="tab-panel" style="display:none">
+        <div style="display:grid; gap:18px;">
+          <div>
+            <h3 style="margin:0 0 8px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em;">Audio</h3>
+            <p style="margin:0 0 8px; color:var(--muted); font-size:12px;">Volume controls are wired but no audio is implemented yet — these are placeholders for the upcoming sound pass.</p>
+            <div class="slider-row">
+              <label for="setMaster">Master</label>
+              <div style="display:flex; gap:8px; align-items:center;"><input type="range" id="setMaster" min="0" max="100" value="80"><span class="val" id="setMasterVal">80</span></div>
+            </div>
+            <div class="slider-row">
+              <label for="setSfx">Effects</label>
+              <div style="display:flex; gap:8px; align-items:center;"><input type="range" id="setSfx" min="0" max="100" value="80"><span class="val" id="setSfxVal">80</span></div>
+            </div>
+            <div class="slider-row">
+              <label for="setAmbient">Ambience</label>
+              <div style="display:flex; gap:8px; align-items:center;"><input type="range" id="setAmbient" min="0" max="100" value="60"><span class="val" id="setAmbientVal">60</span></div>
+            </div>
+            <div class="slider-row">
+              <label for="setVoice">Voice / Radio</label>
+              <div style="display:flex; gap:8px; align-items:center;"><input type="range" id="setVoice" min="0" max="100" value="90"><span class="val" id="setVoiceVal">90</span></div>
+            </div>
+          </div>
+
+          <div>
+            <h3 style="margin:0 0 8px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em;">Camera</h3>
+            <div class="slider-row">
+              <label for="setSensitivity">Mouse sensitivity</label>
+              <div style="display:flex; gap:8px; align-items:center;"><input type="range" id="setSensitivity" min="20" max="200" value="100"><span class="val" id="setSensitivityVal">100</span></div>
+            </div>
+            <div class="slider-row">
+              <label for="setFov">Field of View</label>
+              <div style="display:flex; gap:8px; align-items:center;"><input type="range" id="setFov" min="55" max="95" value="72"><span class="val" id="setFovVal">72</span></div>
+            </div>
+            <div class="slider-row">
+              <label for="setBrightness">Brightness</label>
+              <div style="display:flex; gap:8px; align-items:center;"><input type="range" id="setBrightness" min="40" max="160" value="100"><span class="val" id="setBrightnessVal">100</span></div>
+            </div>
+          </div>
+
+          <div>
+            <h3 style="margin:0 0 8px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em;">Keybinds (display)</h3>
+            <p style="margin:0 0 8px; color:var(--muted); font-size:12px;">Custom rebinding lands in the next settings pass. These are the current defaults.</p>
+            <div class="keybind-row"><span>Move</span><kbd>W A S D</kbd></div>
+            <div class="keybind-row"><span>Sprint</span><kbd>Shift</kbd></div>
+            <div class="keybind-row"><span>Switch tool</span><kbd>1 2 3 4</kbd></div>
+            <div class="keybind-row"><span>Scan with equipped tool</span><kbd>E</kbd></div>
+            <div class="keybind-row"><span>Place ward</span><kbd>Q</kbd></div>
+            <div class="keybind-row"><span>Banish (open picker)</span><kbd>F</kbd></div>
+            <div class="keybind-row"><span>Toggle flashlight</span><kbd>B</kbd></div>
+            <div class="keybind-row"><span>Investigate (hold)</span><kbd>V</kbd></div>
+            <div class="keybind-row"><span>Ping marker</span><kbd>G</kbd></div>
+            <div class="keybind-row"><span>Open Field Journal</span><kbd>J</kbd></div>
+            <div class="keybind-row"><span>Focus chat</span><kbd>T</kbd></div>
+            <div class="keybind-row"><span>Open / close menu</span><kbd>Tab</kbd></div>
+            <div class="keybind-row"><span>Release pointer</span><kbd>Esc</kbd></div>
+          </div>
+        </div>
       </div>
 
       <!-- How to play -->
@@ -863,18 +978,32 @@
         worldGroup.add(tree);
       }
 
-      // Tent (two crossed canvas planes + a pole)
-      const tentMat = new THREE.MeshStandardMaterial({ color: 0x4a3a26, roughness: 0.9, side: THREE.DoubleSide });
-      const tentA = new THREE.Mesh(new THREE.ConeGeometry(2.4, 3.0, 4, 1, true), tentMat);
-      tentA.rotation.y = Math.PI / 4;
-      tentA.position.set(0, 1.5, -3);
-      worldGroup.add(tentA);
-      const pole = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.06, 0.06, 3.4, 8),
-        new THREE.MeshStandardMaterial({ color: 0x2a1f10 })
-      );
-      pole.position.set(0, 1.7, -3);
-      worldGroup.add(pole);
+      // Tent — use the GLB if the user dropped one in public/models/tents/,
+      // otherwise fall back to a primitive pyramid + pole stand-in.
+      if (modelCatalog.tent) {
+        const tent = modelCatalog.tent.scene.clone(true);
+        // Auto-fit: anchor the model so its center-of-base sits at (0, 0, -3)
+        const bbox = new THREE.Box3().setFromObject(tent);
+        const size = bbox.getSize(new THREE.Vector3());
+        const targetH = 3.2;
+        const scale = targetH / Math.max(0.001, size.y);
+        tent.scale.setScalar(scale);
+        const scaledBbox = new THREE.Box3().setFromObject(tent);
+        tent.position.set(-((scaledBbox.min.x + scaledBbox.max.x) / 2), -scaledBbox.min.y, -3 - ((scaledBbox.min.z + scaledBbox.max.z) / 2));
+        worldGroup.add(tent);
+      } else {
+        const tentMat = new THREE.MeshStandardMaterial({ color: 0x4a3a26, roughness: 0.9, side: THREE.DoubleSide });
+        const tentA = new THREE.Mesh(new THREE.ConeGeometry(2.4, 3.0, 4, 1, true), tentMat);
+        tentA.rotation.y = Math.PI / 4;
+        tentA.position.set(0, 1.5, -3);
+        worldGroup.add(tentA);
+        const pole = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.06, 0.06, 3.4, 8),
+          new THREE.MeshStandardMaterial({ color: 0x2a1f10 })
+        );
+        pole.position.set(0, 1.7, -3);
+        worldGroup.add(pole);
+      }
 
       // Gear table (a crate-top "ready bench")
       const table = new THREE.Mesh(
@@ -1436,16 +1565,33 @@
     // Empty = no models installed; meshes fall back to the capsule placeholder.
     const hunterModels = [];
 
+    // Cache of additional GLBs (tent, per-house, per-vampire) loaded once at
+    // boot. Each entry: { scene, animations } — no auto-scaling here since
+    // these models are scene props, not character-sized.
+    const modelCatalog = { tent: null, houses: {}, vampires: {} };
+
+    function loadGLTFCached(url) {
+      return new Promise((resolve) => {
+        const loader = new GLTFLoader();
+        loader.load(url, resolve, undefined, (err) => {
+          console.warn('GLB failed to load:', url, err);
+          showNotice(`Could not load ${url.split('/').pop()} — check the browser console.`);
+          resolve(null);
+        });
+      });
+    }
+
     async function loadHunterModels() {
-      let urls;
+      let manifest;
       try {
         const res = await fetch('/api/models');
-        urls = (await res.json()).hunters || [];
+        manifest = await res.json();
       } catch (_e) { return; }
-      if (urls.length === 0) return;
 
+      // Hunters
+      const hunterUrls = manifest.hunters || [];
       const loader = new GLTFLoader();
-      const loaded = await Promise.all(urls.map((url) => new Promise((resolve) => {
+      const loaded = await Promise.all(hunterUrls.map((url) => new Promise((resolve) => {
         loader.load(
           url,
           (gltf) => {
@@ -1465,6 +1611,22 @@
       })));
       for (const item of loaded) if (item) hunterModels.push(item);
       if (hunterModels.length > 0) console.log(`Loaded ${hunterModels.length} hunter model(s).`);
+
+      // Tent
+      if (manifest.tent) {
+        const g = await loadGLTFCached(manifest.tent);
+        if (g) modelCatalog.tent = { scene: g.scene };
+      }
+      // Houses (per-contract id)
+      for (const [id, url] of Object.entries(manifest.houses || {})) {
+        const g = await loadGLTFCached(url);
+        if (g) modelCatalog.houses[id] = { scene: g.scene };
+      }
+      // Vampires (per-species id)
+      for (const [id, url] of Object.entries(manifest.vampires || {})) {
+        const g = await loadGLTFCached(url);
+        if (g) modelCatalog.vampires[id] = { scene: g.scene, animations: g.animations };
+      }
     }
 
     function pickModelFor(player) {
@@ -1700,7 +1862,8 @@
       let activeId = null;
       let lastX = 0, lastY = 0;
       const lookEuler = new THREE.Euler(0, 0, 0, 'YXZ');
-      const SENS = 0.0045;
+      const SENS_BASE = 0.0045;
+      const sens = () => SENS_BASE * (settings.sensitivity / 100);
 
       area.addEventListener('touchstart', (e) => {
         if (activeId !== null) return;
@@ -1720,8 +1883,8 @@
           lastX = t.clientX;
           lastY = t.clientY;
           lookEuler.setFromQuaternion(camera.quaternion);
-          lookEuler.y -= dx * SENS;
-          lookEuler.x -= dy * SENS;
+          lookEuler.y -= dx * sens();
+          lookEuler.x -= dy * sens();
           lookEuler.x = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, lookEuler.x));
           camera.quaternion.setFromEuler(lookEuler);
         }
@@ -2155,6 +2318,70 @@
     }
     function toggleMenu() { modalOpen() ? closeModal() : openMenu(currentTab); }
 
+    // ---------- Title screen ----------
+    const titleBack = $('titleBack');
+    function showTitle() { titleBack.classList.add('open'); }
+    function hideTitle() { titleBack.classList.remove('open'); }
+    $('titleStartBtn').addEventListener('click', () => { hideTitle(); openMenu('lobby'); });
+    $('titleSettingsBtn').addEventListener('click', () => { hideTitle(); openMenu('settings'); });
+    $('titleHowtoBtn').addEventListener('click', () => { hideTitle(); openMenu('howto'); });
+
+    // ---------- Settings (persisted to localStorage) ----------
+    const settings = (() => {
+      const stored = JSON.parse(localStorage.getItem('nightfallSettings') || '{}');
+      return {
+        master: stored.master ?? 80,
+        sfx: stored.sfx ?? 80,
+        ambient: stored.ambient ?? 60,
+        voice: stored.voice ?? 90,
+        sensitivity: stored.sensitivity ?? 100,
+        fov: stored.fov ?? 72,
+        brightness: stored.brightness ?? 100
+      };
+    })();
+
+    function saveSettings() {
+      localStorage.setItem('nightfallSettings', JSON.stringify(settings));
+    }
+
+    function bindSetting(id, key, onChange) {
+      const el = $(id);
+      const valEl = $(id + 'Val');
+      el.value = settings[key];
+      if (valEl) valEl.textContent = settings[key];
+      el.addEventListener('input', () => {
+        settings[key] = Number(el.value);
+        if (valEl) valEl.textContent = el.value;
+        onChange?.(settings[key]);
+        saveSettings();
+      });
+    }
+
+    bindSetting('setMaster', 'master');
+    bindSetting('setSfx', 'sfx');
+    bindSetting('setAmbient', 'ambient');
+    bindSetting('setVoice', 'voice');
+    bindSetting('setSensitivity', 'sensitivity', (v) => { /* applied in look handlers below */ });
+    bindSetting('setFov', 'fov', (v) => {
+      camera.fov = v;
+      camera.updateProjectionMatrix();
+    });
+    bindSetting('setBrightness', 'brightness', (v) => {
+      ambient.intensity = 0.55 * (v / 100);
+      hemi.intensity = 0.25 * (v / 100);
+    });
+
+    // Apply persisted values immediately on boot
+    camera.fov = settings.fov;
+    camera.updateProjectionMatrix();
+    ambient.intensity = 0.55 * (settings.brightness / 100);
+    hemi.intensity = 0.25 * (settings.brightness / 100);
+    if ('pointerSpeed' in controls) controls.pointerSpeed = settings.sensitivity / 100;
+    // Keep PointerLockControls' pointerSpeed in sync with the slider live
+    $('setSensitivity').addEventListener('input', () => {
+      if ('pointerSpeed' in controls) controls.pointerSpeed = settings.sensitivity / 100;
+    });
+
     // ---------- Banish modal ----------
     const banishBack = $('banishBack');
     function banishOpen() { return banishBack.classList.contains('open'); }
@@ -2213,6 +2440,7 @@
         loadout: 'Loadout',
         leaderboard: 'Leaderboard',
         journal: 'Field Journal',
+        settings: 'Settings',
         howto: 'How to Play'
       })[tab] || 'Menu';
       if (tab === 'leaderboard') loadLeaderboard();
@@ -2258,14 +2486,23 @@
           const got = confirmed.has(v.altEvidence);
           return ` <small style="color:var(--violet)">+ Nightmare tell: <span style="${got ? 'color:var(--mint); font-weight:900;' : 'color:var(--violet);'}">${escapeHtml(name)}</span></small>`;
         })() : '';
+        const profileLine = v.profile ? `<small style="display:block; color:var(--blue); font-style:italic;">${escapeHtml(v.profile)}</small>` : '';
+        // Lore is long; collapse by default to keep cards manageable.
+        const loreLine = v.lore ? `
+          <details style="margin-top:6px;">
+            <summary style="cursor:pointer; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.08em;">Lore</summary>
+            <p style="margin:6px 0 0; color:var(--ink); font-size:12px; line-height:1.5;">${escapeHtml(v.lore)}</p>
+          </details>` : '';
         return `<div class="loadout-card ${isRevealed ? 'selected' : ''}" style="opacity:${dimmed ? .35 : 1}">
           <strong>${escapeHtml(v.name)}${isRevealed ? ' <small style="color:var(--amber)">/ this match’s species</small>' : ''}</strong>
+          ${profileLine}
           <small>Evidence: ${v.evidence.map((id) => {
             const name = evidenceById[id]?.name || id;
             const got = confirmed.has(id);
             return `<span style="${got ? 'color:var(--mint); font-weight:900;' : 'color:var(--muted);'}">${escapeHtml(name)}</span>`;
           }).join(' / ')}${altTag}</small>
           ${ritualBlock}
+          ${loreLine}
         </div>`;
       }).join('');
     }
@@ -2645,13 +2882,19 @@
         worldGroup.add(rebuilt);
       }
     });
-    // Show the outdoor hunters' camp behind the boot lobby modal so the
-    // player has something to look at while picking host/join/loadout.
+    // Show the outdoor hunters' camp behind the boot title screen so the
+    // player has something to look at while choosing Start / Settings.
     buildStagingArea();
     const params = new URLSearchParams(location.search);
     const roomFromUrl = params.get('room');
-    if (roomFromUrl) $('roomCode').value = roomFromUrl.toUpperCase();
-    openMenu('lobby');
+    if (roomFromUrl) {
+      // Deep-link / invite path: skip the title screen and drop straight into
+      // the lobby pre-filled with the invite code.
+      $('roomCode').value = roomFromUrl.toUpperCase();
+      openMenu('lobby');
+    } else {
+      showTitle();
+    }
   </script>
 </body>
 </html>

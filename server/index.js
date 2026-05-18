@@ -58,16 +58,76 @@ const gearCatalog = {
 // random signs are placed, which can leave confirmed evidence consistent
 // with several species — players have to guess at banish time).
 const vampireCatalog = [
-  { id: "nosferatu",       name: "Nosferatu",            evidence: ["physical", "emf", "pheromones"],         altEvidence: "thermal",     banishment: "Mirror shards and blessed salt, performed in total darkness." },
-  { id: "noble",           name: "Vampiric Noble",       evidence: ["spectral", "physical", "aura"],           altEvidence: "pheromones",  banishment: "Personal belonging ritual at midnight, under moonlight." },
-  { id: "shade_stalker",   name: "Shade Stalker",        evidence: ["thermal", "spectral", "blood_traces"],    altEvidence: "aura",        banishment: "Burn special incense, flood with bright light." },
-  { id: "blood_alchemist", name: "Blood Alchemist",      evidence: ["blood_traces", "physical", "pheromones"], altEvidence: "ectoplasm",   banishment: "Holy water + its own blood; destroy its alchemical focus." },
-  { id: "mist_walker",     name: "Mist Walker",          evidence: ["ectoplasm", "emf", "thermal"],            altEvidence: "aura",        banishment: "Trap the mist in a prepared vessel; zero air currents." },
-  { id: "chronovampire",   name: "Chronovampire",        evidence: ["temporal", "physical", "spectral"],       altEvidence: "emf",         banishment: "Synced cross-time actions using a mortal-past artifact." },
-  { id: "psychic_leech",   name: "Psychic Leech",        evidence: ["aura", "spectral", "sonic"],              altEvidence: "temporal",    banishment: "Combined mental focus of the full team; break illusions." },
-  { id: "feral",           name: "Feral Bloodline",      evidence: ["physical", "pheromones", "thermal"],      altEvidence: "blood_traces",banishment: "Silver caging circle; calm the feral nature." },
-  { id: "tech_hybrid",     name: "Technological Hybrid", evidence: ["emf", "physical", "sonic"],               altEvidence: "temporal",    banishment: "Isolate from all tech; trigger an EMP at the climax." },
-  { id: "dreamweaver",     name: "Dreamweaver",          evidence: ["spectral", "aura", "sonic"],              altEvidence: "ectoplasm",   banishment: "Lucid dream together; confront the vampire on its ground." }
+  {
+    id: "nosferatu", name: "Nosferatu",
+    evidence: ["physical", "emf", "pheromones"], altEvidence: "thermal",
+    banishment: "Mirror shards and blessed salt, performed in total darkness.",
+    profile: "Aggressive, light-sensitive, overtly predatory. The classic 'first hunt' vampire.",
+    lore: "The Nosferatu strain descends from the plague-priests of Borgo Vrânia, who clawed up from quarantine pits with the disease still on them. They climb walls and ceilings, breathe a fear pheromone that buckles the knees, and pace just outside the lantern light. Hunters report the same dream the night before a sighting: a long corridor, scraped along the ceiling. Light is their leash — sever it, and they hunt unbound."
+  },
+  {
+    id: "noble", name: "Vampiric Noble",
+    evidence: ["spectral", "physical", "aura"], altEvidence: "pheromones",
+    banishment: "Personal belonging ritual at midnight, under moonlight.",
+    profile: "Aristocratic. Charming, dangerous, surrounded by quiet luxury.",
+    lore: "The Noble line are old money — courts, salons, royal physicians who never aged. They thrall the weak-willed with a glance and dissolve into bat-swarms when cornered. Most still keep the manners. A relic of their mortal life — a locket, a signet ring, a stained letter — anchors them to the world; until that anchor is destroyed under moonlight, no banishment holds. They speak first, before they feed."
+  },
+  {
+    id: "shade_stalker", name: "Shade Stalker",
+    evidence: ["thermal", "spectral", "blood_traces"], altEvidence: "aura",
+    banishment: "Burn special incense, flood with bright light.",
+    profile: "Near-invisible in darkness. Hunts through connected shadows.",
+    lore: "Shade Stalkers don't walk between rooms — they fall into one shadow and rise from another, treating darkness like tunnels. A drop in air temperature and a whisper just behind your ear is usually the only warning. They drain life on contact and leave a residue under UV that looks like rust shaped like fingers. Burn the chrism, light every corner, and the shadow-tunnels collapse on them."
+  },
+  {
+    id: "blood_alchemist", name: "Blood Alchemist",
+    evidence: ["blood_traces", "physical", "pheromones"], altEvidence: "ectoplasm",
+    banishment: "Holy water + its own blood; destroy its alchemical focus.",
+    profile: "A vampire-scholar that has weaponized its own biology.",
+    lore: "Cabaret of the Crimson Compass, 1881 — three medical students published a paper on transmuting blood to silver. Two were hanged. The third went missing, then started leaving alchemical sigils painted in his own arteries on basement walls. Blood Alchemists construct weapons out of their fluids and sense fresh wounds from across a city. Destroying their focus — an athanor, a still, a glass alembic at the lair's center — is the only way the rite holds."
+  },
+  {
+    id: "mist_walker", name: "Mist Walker",
+    evidence: ["ectoplasm", "emf", "thermal"], altEvidence: "aura",
+    banishment: "Trap the mist in a prepared vessel; zero air currents.",
+    profile: "Doesn't fight — seeps. Hard to corner, harder to confirm.",
+    lore: "Mist Walkers are graveyard fog given purpose. They cross under doors, through keyholes, into your lungs while you sleep. Their touch induces hallucinations of being underwater. They can't be cut — they can only be condensed. Bring an iron vessel, seal every draft, and the mist is forced back into a body just long enough to bind."
+  },
+  {
+    id: "chronovampire", name: "Chronovampire",
+    evidence: ["temporal", "physical", "spectral"], altEvidence: "emf",
+    banishment: "Synced cross-time actions using a mortal-past artifact.",
+    profile: "Ancient and rare. Bends local time, ages victims with a touch.",
+    lore: "The first Chronovampires were astronomer-priests who hung their souls on the wrong star. Time eddies around them — clocks unwind, dust freezes mid-fall, mortals age sixty years in a single touch. They see your next move three seconds before you do. The only working ritual requires two hunters acting in synchrony with a relic from the vampire's living years, severing its present from its future at the same instant."
+  },
+  {
+    id: "psychic_leech", name: "Psychic Leech",
+    evidence: ["aura", "spectral", "sonic"], altEvidence: "temporal",
+    banishment: "Combined mental focus of the full team; break illusions.",
+    profile: "Feeds on mental energy, not blood. Hardest species to identify.",
+    lore: "Psychic Leeches don't bleed their victims — they sip from them, year after year, until the host can't remember their own name. They leave no physical trace; only auras and the same déjà vu in every survivor's testimony. Their projections are vivid enough to walk through. The full team must hold a single intention in their minds while the illusions break, or the rite splinters into nightmare."
+  },
+  {
+    id: "feral", name: "Feral Bloodline",
+    evidence: ["physical", "pheromones", "thermal"], altEvidence: "blood_traces",
+    banishment: "Silver caging circle; calm the feral nature.",
+    profile: "A vampire that has surrendered to the beast.",
+    lore: "Every bloodline produces a few who let the beast win. The Feral strain are hunched, fast, animal-hot — their bite carries a rabies-adjacent infection that kills within days. They communicate in growls and scent. Cage them with silver, sing the calming verses your order memorized as a child, and the human shape returns long enough to die properly."
+  },
+  {
+    id: "tech_hybrid", name: "Technological Hybrid",
+    evidence: ["emf", "physical", "sonic"], altEvidence: "temporal",
+    banishment: "Isolate from all tech; trigger an EMP at the climax.",
+    profile: "A modern horror — half vampire, half machine.",
+    lore: "Synthemata Industries' R&D wing went dark in 2019. Three of their engineers walked out four months later with parts of their nervous systems replaced and an appetite that no diet plan addressed. Technological Hybrids talk to electronics the way other vampires talk to bats. They corrupt evidence in real time, swap camera feeds, drain your radio. The EMP at the rite's peak silences them long enough for the holy work to finish."
+  },
+  {
+    id: "dreamweaver", name: "Dreamweaver",
+    evidence: ["spectral", "aura", "sonic"], altEvidence: "ectoplasm",
+    banishment: "Lucid dream together; confront the vampire on its ground.",
+    profile: "Hunts in sleep. Victims appear unharmed and unwakeable.",
+    lore: "Dreamweavers live in REM the way you live in your apartment. They feed on nightmares, and they're patient — many of their victims simply lie in beds, hearts beating, faces serene, for decades. Solo hunters die in the dream and never come back. Only a full team, mid-lucid, can corner one on its own territory. Bring something familiar from the waking world to anchor yourself."
+  }
 ];
 
 function vampireFullPool(v) {
@@ -430,8 +490,14 @@ app.get("/api/vampires", (_req, res) => {
   // Public catalog: include the canonical signatures plus the altEvidence
   // "Nightmare-only tell" so the journal can show all four possibilities
   // and narrow suspects correctly when the host has picked Nightmare.
-  // Banishment text stays hidden until species is revealed at match end.
-  res.json(vampireCatalog.map((v) => ({ id: v.id, name: v.name, evidence: v.evidence, altEvidence: v.altEvidence || null })));
+  // Profile and lore go out unconditionally — they're worldbuilding for the
+  // journal even before a species is identified. Banishment text stays
+  // hidden until reveal.
+  res.json(vampireCatalog.map((v) => ({
+    id: v.id, name: v.name,
+    evidence: v.evidence, altEvidence: v.altEvidence || null,
+    profile: v.profile || "", lore: v.lore || ""
+  })));
 });
 
 app.get("/api/rituals", (_req, res) => {
@@ -477,15 +543,32 @@ let cachedTextures = scanTextures();
 app.get("/api/textures", (_req, res) => res.json(cachedTextures));
 
 function scanModels() {
-  const out = { hunters: [] };
-  const dir = path.join(PUBLIC_DIR, "models", "hunters");
-  if (fs.existsSync(dir)) {
-    try {
-      out.hunters = fs.readdirSync(dir)
-        .filter((f) => /\.glb$/i.test(f))
-        .sort((a, b) => a === "default.glb" ? -1 : b === "default.glb" ? 1 : a.localeCompare(b))
-        .map((f) => `/models/hunters/${encodeURIComponent(f)}`);
-    } catch (_e) {}
+  const out = { hunters: [], tent: null, houses: {}, vampires: {} };
+  const baseDir = path.join(PUBLIC_DIR, "models");
+  const safeList = (sub) => {
+    const dir = path.join(baseDir, sub);
+    if (!fs.existsSync(dir)) return [];
+    try { return fs.readdirSync(dir).filter((f) => /\.glb$/i.test(f)); }
+    catch (_e) { return []; }
+  };
+
+  out.hunters = safeList("hunters")
+    .sort((a, b) => a === "default.glb" ? -1 : b === "default.glb" ? 1 : a.localeCompare(b))
+    .map((f) => `/models/hunters/${encodeURIComponent(f)}`);
+
+  // Tent: prefer tent.glb; otherwise the first file
+  const tentFiles = safeList("tents");
+  const tentFile = tentFiles.find((f) => f === "tent.glb") || tentFiles[0];
+  if (tentFile) out.tent = `/models/tents/${encodeURIComponent(tentFile)}`;
+
+  // Houses & vampires: keyed by basename (sans extension)
+  for (const f of safeList("houses")) {
+    const id = f.replace(/\.glb$/i, "");
+    out.houses[id] = `/models/houses/${encodeURIComponent(f)}`;
+  }
+  for (const f of safeList("vampires")) {
+    const id = f.replace(/\.glb$/i, "");
+    out.vampires[id] = `/models/vampires/${encodeURIComponent(f)}`;
   }
   return out;
 }
