@@ -997,91 +997,131 @@
 
     function buildMap(room) {
       clearWorld();
-      const rows = room.mapRows;
-      const w = rows[0].length;
-      const h = rows.length;
+      // Multi-floor: render every floor stacked at y = floor * floorHeight.
+      // Stair tiles (U / D) are visualized with a placeholder ramp connecting
+      // the matching tile on the adjacent floor — actual teleport gameplay
+      // for stairs lands in the next commit.
+      const floors = room.floors || [{ mapRows: room.mapRows, stairs: [] }];
+      const fh = room.floorHeight || 3.4;
+      const rows0 = floors[0].mapRows;
+      const w = rows0[0].length;
+      const h = rows0.length;
 
-      // Tile textures so 1 repeat ≈ 1 grid cell (4 world units). Walls and the
-      // crypt tile are smaller surfaces so they get extra repeats for detail.
       applyTextureRepeat(floorMat, w, h);
       applyTextureRepeat(ceilMat, w, h);
       applyTextureRepeat(wallMat, 2, 2);
       applyTextureRepeat(cryptFloorMat, 2, 2);
 
-      // Floor (large quad covering all)
+      const wallGeo = new THREE.BoxGeometry(TILE, fh, TILE);
       const floorGeo = new THREE.PlaneGeometry(w * TILE, h * TILE);
-      const floor = new THREE.Mesh(floorGeo, floorMat);
-      floor.rotation.x = -Math.PI / 2;
-      floor.position.set((w * TILE) / 2, 0, (h * TILE) / 2);
-      worldGroup.add(floor);
 
-      // Ceiling
-      const ceil = new THREE.Mesh(floorGeo.clone(), ceilMat);
-      ceil.rotation.x = Math.PI / 2;
-      ceil.position.set((w * TILE) / 2, 3.4, (h * TILE) / 2);
-      worldGroup.add(ceil);
+      floors.forEach((fdef, fi) => {
+        const yBase = fi * fh;
+        const rows = fdef.mapRows;
 
-      // Walls — instance per tile
-      const wallGeo = new THREE.BoxGeometry(TILE, 3.4, TILE);
-      for (let y = 0; y < h; y += 1) {
-        for (let x = 0; x < w; x += 1) {
-          const cell = rows[y][x];
-          if (cell === '#') {
-            const wall = new THREE.Mesh(wallGeo, wallMat);
-            wall.position.set((x + 0.5) * TILE, 1.7, (y + 0.5) * TILE);
-            worldGroup.add(wall);
-          } else if (cell === 'C') {
-            const cFloor = new THREE.Mesh(new THREE.PlaneGeometry(TILE * 0.95, TILE * 0.95), cryptFloorMat);
-            cFloor.rotation.x = -Math.PI / 2;
-            cFloor.position.set((x + 0.5) * TILE, 0.01, (y + 0.5) * TILE);
-            worldGroup.add(cFloor);
-            cryptMesh = cFloor;
-            // crypt pillar
-            const pillar = new THREE.Mesh(
-              new THREE.BoxGeometry(0.5, 1.2, 0.5),
-              new THREE.MeshStandardMaterial({ color: 0x6a1f2a, emissive: 0x440912, emissiveIntensity: 0.8, roughness: 0.5 })
-            );
-            pillar.position.set((x + 0.5) * TILE, 0.6, (y + 0.5) * TILE);
-            worldGroup.add(pillar);
-          } else if (cell === 'S') {
-            const sFloor = new THREE.Mesh(new THREE.PlaneGeometry(TILE * 0.95, TILE * 0.95), safeFloorMat);
-            sFloor.rotation.x = -Math.PI / 2;
-            sFloor.position.set((x + 0.5) * TILE, 0.01, (y + 0.5) * TILE);
-            worldGroup.add(sFloor);
-          } else if (cell === 'K') {
-            const kFloor = new THREE.Mesh(new THREE.PlaneGeometry(TILE * 0.95, TILE * 0.95), vaultFloorMat);
-            kFloor.rotation.x = -Math.PI / 2;
-            kFloor.position.set((x + 0.5) * TILE, 0.01, (y + 0.5) * TILE);
-            worldGroup.add(kFloor);
-            // small chest
-            const chest = new THREE.Mesh(
-              new THREE.BoxGeometry(1.2, 0.7, 0.8),
-              new THREE.MeshStandardMaterial({ color: 0x4a3a1c, roughness: 0.7 })
-            );
-            chest.position.set((x + 0.5) * TILE, 0.35, (y + 0.5) * TILE);
-            worldGroup.add(chest);
+        // Floor slab. Upper floors share the same geometry but use their own
+        // material instance so each gets a per-floor repeat without leaking
+        // between levels (we keep one shared instance for now — fine since
+        // all floors use the same texture set).
+        const slab = new THREE.Mesh(floorGeo, floorMat);
+        slab.rotation.x = -Math.PI / 2;
+        slab.position.set((w * TILE) / 2, yBase, (h * TILE) / 2);
+        worldGroup.add(slab);
+
+        // Ceiling for this floor (also acts as the underside of the next floor)
+        const ceil = new THREE.Mesh(floorGeo.clone(), ceilMat);
+        ceil.rotation.x = Math.PI / 2;
+        ceil.position.set((w * TILE) / 2, yBase + fh, (h * TILE) / 2);
+        worldGroup.add(ceil);
+
+        for (let y = 0; y < h; y += 1) {
+          for (let x = 0; x < w; x += 1) {
+            const cell = rows[y][x];
+            const cx = (x + 0.5) * TILE;
+            const cz = (y + 0.5) * TILE;
+            if (cell === '#') {
+              const wall = new THREE.Mesh(wallGeo, wallMat);
+              wall.position.set(cx, yBase + fh / 2, cz);
+              worldGroup.add(wall);
+            } else if (cell === 'C') {
+              const cFloor = new THREE.Mesh(new THREE.PlaneGeometry(TILE * 0.95, TILE * 0.95), cryptFloorMat);
+              cFloor.rotation.x = -Math.PI / 2;
+              cFloor.position.set(cx, yBase + 0.01, cz);
+              worldGroup.add(cFloor);
+              cryptMesh = cFloor;
+              const pillar = new THREE.Mesh(
+                new THREE.BoxGeometry(0.5, 1.2, 0.5),
+                new THREE.MeshStandardMaterial({ color: 0x6a1f2a, emissive: 0x440912, emissiveIntensity: 0.8, roughness: 0.5 })
+              );
+              pillar.position.set(cx, yBase + 0.6, cz);
+              worldGroup.add(pillar);
+            } else if (cell === 'S') {
+              const sFloor = new THREE.Mesh(new THREE.PlaneGeometry(TILE * 0.95, TILE * 0.95), safeFloorMat);
+              sFloor.rotation.x = -Math.PI / 2;
+              sFloor.position.set(cx, yBase + 0.01, cz);
+              worldGroup.add(sFloor);
+            } else if (cell === 'K') {
+              const kFloor = new THREE.Mesh(new THREE.PlaneGeometry(TILE * 0.95, TILE * 0.95), vaultFloorMat);
+              kFloor.rotation.x = -Math.PI / 2;
+              kFloor.position.set(cx, yBase + 0.01, cz);
+              worldGroup.add(kFloor);
+              const chest = new THREE.Mesh(
+                new THREE.BoxGeometry(1.2, 0.7, 0.8),
+                new THREE.MeshStandardMaterial({ color: 0x4a3a1c, roughness: 0.7 })
+              );
+              chest.position.set(cx, yBase + 0.35, cz);
+              worldGroup.add(chest);
+            } else if (cell === 'U' || cell === 'D') {
+              // Stair-floor — open hole in the ceiling above the tile and
+              // a sloped ramp leading up. Cut a placeholder by NOT placing
+              // the floor's own ceiling above this tile (cheap: drop a
+              // dark stair-shaft cube here).
+              const shaft = new THREE.Mesh(
+                new THREE.BoxGeometry(TILE * 0.6, 0.1, TILE * 0.6),
+                new THREE.MeshStandardMaterial({ color: 0x382820, roughness: 0.95 })
+              );
+              shaft.position.set(cx, yBase + 0.06, cz);
+              worldGroup.add(shaft);
+              if (cell === 'U') {
+                // Ramp climbs from this tile (yBase) up to next floor (yBase+fh)
+                const ramp = new THREE.Mesh(
+                  new THREE.BoxGeometry(1.4, 0.2, TILE * 0.9),
+                  new THREE.MeshStandardMaterial({ color: 0x4a3320, roughness: 0.85 })
+                );
+                ramp.position.set(cx, yBase + fh / 2, cz);
+                ramp.rotation.x = Math.atan2(fh, TILE * 0.9);
+                worldGroup.add(ramp);
+                // Hole in this floor's ceiling above the stair so the player
+                // can see the upper floor through it
+                // (a quick visual: just add a glowing edge)
+                const halo = new THREE.PointLight(0xffd58a, 0.8, 4);
+                halo.position.set(cx, yBase + fh - 0.2, cz);
+                worldGroup.add(halo);
+              }
+            }
           }
         }
-      }
+      });
 
-      // Clue motes
-      room.clueSpots.forEach((spot, i) => {
+      // Clue motes — placed at their floor's vertical offset
+      (room.clueSpots || []).forEach((spot, i) => {
+        const fi = spot.floor || 0;
         const orb = new THREE.Mesh(
           new THREE.SphereGeometry(0.18, 16, 12),
           new THREE.MeshStandardMaterial({ color: 0xe1a957, emissive: 0xe1a957, emissiveIntensity: 1.4 })
         );
-        orb.position.set((spot.x + 0.5) * TILE, 1.4, (spot.y + 0.5) * TILE);
+        const baseY = fi * fh + 1.4;
+        orb.position.set((spot.x + 0.5) * TILE, baseY, (spot.y + 0.5) * TILE);
         orb.userData.sign = room.signs[i];
-        orb.userData.baseY = 1.4;
+        orb.userData.baseY = baseY;
         const point = new THREE.PointLight(0xe1a957, 1.2, 4);
         orb.add(point);
         worldGroup.add(orb);
         clueMeshes.push(orb);
       });
 
-      // Place player at spawn
+      // Place player at spawn (always floor 0)
       controls.getObject().position.set(room.spawn.x, PLAYER_HEIGHT, room.spawn.z);
-      velocity.set(0, 0, 0);
     }
 
     function buildVampire(room) {

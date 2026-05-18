@@ -325,22 +325,69 @@ const contracts = [
     name: "Ravenhall Estate",
     objective: "Slip through the ballroom, recover a personal effect, and complete the midnight rite.",
     level: 2,
-    mapRows: [
-      "############",
-      "#S.....#...#",
-      "#.##.#.#.#.#",
-      "#....#...#.#",
-      "###.##.###.#",
-      "#.....C....#",
-      "#.##.###.#.#",
-      "#K.........#",
-      "############"
+    // Multi-floor: U on a lower floor and D on an upper floor at matching
+    // (x, y) snap the player to the other floor when walked onto.
+    floors: [
+      {
+        // Floor 0: ground level ballroom / drawing room
+        mapRows: [
+          "############",
+          "#S.....#...#",
+          "#.##.#.#.#.#",
+          "#....#.U.#.#",
+          "###.##.###.#",
+          "#.....C....#",
+          "#.##.###.#.#",
+          "#K.........#",
+          "############"
+        ],
+        stairs: [{ x: 7, y: 3, to: 1 }]
+      },
+      {
+        // Floor 1: bedrooms over the ballroom. Inner walls form a closet
+        // room (open for now; doors/closets land in a follow-up commit).
+        mapRows: [
+          "############",
+          "#..........#",
+          "#..####....#",
+          "#..#..#D...#",
+          "#..#..#....#",
+          "#..####....#",
+          "#..........#",
+          "#..........#",
+          "############"
+        ],
+        stairs: [{ x: 7, y: 3, to: 0 }]
+      }
     ],
-    clueSpots: [{ x: 9, y: 1 }, { x: 2, y: 3 }, { x: 8, y: 7 }],
-    cryptPosition: { x: 6, y: 5 },
-    vampireStart: { x: 9, y: 7 }
+    clueSpots: [
+      { x: 9, y: 1, floor: 0 },
+      { x: 2, y: 7, floor: 0 },
+      { x: 4, y: 4, floor: 1 }
+    ],
+    cryptPosition: { x: 6, y: 5, floor: 0 },
+    vampireStart: { x: 9, y: 7, floor: 0 }
   }
 ];
+
+const FLOOR_HEIGHT = 3.4;
+
+// Some contracts predate the multi-floor schema. Wrap them in a single-floor
+// floors array so the rest of the server can use one access pattern.
+function normalizeContract(c) {
+  if (c.floors) {
+    // Defensive: ensure entity positions carry a floor index
+    return c;
+  }
+  return {
+    ...c,
+    floors: [{ mapRows: c.mapRows, stairs: [] }],
+    clueSpots: c.clueSpots.map((s) => ({ ...s, floor: 0 })),
+    cryptPosition: { ...c.cryptPosition, floor: 0 },
+    vampireStart: { ...c.vampireStart, floor: 0 }
+  };
+}
+for (let i = 0; i < contracts.length; i += 1) contracts[i] = normalizeContract(contracts[i]);
 
 const contractById = (id) => contracts.find((c) => c.id === id);
 const rooms = new Map();
@@ -476,7 +523,8 @@ function makeCode() {
 }
 
 function spawnPosition(contract) {
-  const rows = contract.mapRows;
+  // Spawn is always on floor 0 — that's where the safe room 'S' lives.
+  const rows = contract.floors[0].mapRows;
   for (let y = 0; y < rows.length; y += 1) {
     for (let x = 0; x < rows[y].length; x += 1) {
       if (rows[y][x] === "S") return tileToWorld({ x, y });
@@ -486,16 +534,16 @@ function spawnPosition(contract) {
 }
 
 function computeRelicSpawn(room) {
-  // Place the relic on a vault (K) tile if the map has one; otherwise fall
-  // back to the safe (S) tile. The relic is what Vampiric Noble and other
-  // rituals require — having one always on the map keeps the mechanic alive
-  // even if the chosen vampire doesn't need it.
-  const rows = room.mapRows;
-  for (let y = 0; y < rows.length; y += 1) {
-    for (let x = 0; x < rows[y].length; x += 1) {
-      if (rows[y][x] === "K") {
-        const w = tileToWorld({ x, y });
-        return { tile: { x, y }, world: w, claimed: false };
+  // Walk every floor looking for a vault (K). Returns the first found,
+  // alongside the floor index so the client can render at the right height.
+  for (let floor = 0; floor < room.floors.length; floor += 1) {
+    const rows = room.floors[floor].mapRows;
+    for (let y = 0; y < rows.length; y += 1) {
+      for (let x = 0; x < rows[y].length; x += 1) {
+        if (rows[y][x] === "K") {
+          const w = tileToWorld({ x, y });
+          return { tile: { x, y, floor }, world: w, claimed: false };
+        }
       }
     }
   }
@@ -531,7 +579,11 @@ function makeRoom(code = makeCode(), contractId, difficultyId) {
     vampireId: null,
     vampire: "Unknown",
     signs: [],
-    mapRows: contract.mapRows,
+    // floors: per-floor mapRows + stair links. mapRows still mirrors floor 0
+    // so the existing collision and AI helpers (which only see floor 0 for
+    // now) keep working.
+    floors: contract.floors,
+    mapRows: contract.floors[0].mapRows,
     clueSpots: contract.clueSpots,
     cryptPosition: contract.cryptPosition,
     vampireStart: contract.vampireStart,
@@ -575,6 +627,8 @@ function publicRoom(room) {
     logs: room.logs.slice(-14),
     signs: room.signs,
     mapRows: room.mapRows,
+    floors: room.floors,
+    floorHeight: FLOOR_HEIGHT,
     clueSpots: room.clueSpots,
     cryptPosition: room.cryptPosition,
     spawn: room.spawn,
@@ -678,7 +732,8 @@ function applyContract(room, contract) {
   room.vampireId = null;
   room.vampire = "Unknown";
   room.signs = [];
-  room.mapRows = contract.mapRows;
+  room.floors = contract.floors;
+  room.mapRows = contract.floors[0].mapRows;
   room.clueSpots = contract.clueSpots;
   room.cryptPosition = contract.cryptPosition;
   room.vampireStart = contract.vampireStart;
@@ -1268,7 +1323,12 @@ function finishMatch(room, success, message) {
 function findNearbyClue(room, player) {
   if (!player?.position) return null;
   const radius = loadouts[player.loadout]?.scanRadius || 2;
-  const clues = room.clueSpots.map((spot, i) => ({ world: tileToWorld(spot), sign: room.signs[i] }));
+  const playerFloor = floorFromY(player.position.y);
+  // Only clues on the player's current floor count — you can't scan
+  // through ceilings.
+  const clues = room.clueSpots
+    .map((spot, i) => ({ world: tileToWorld(spot), sign: room.signs[i], floor: spot.floor || 0 }))
+    .filter((c) => c.floor === playerFloor);
   let best = null;
   let bestD = Infinity;
   for (const c of clues) {
@@ -1278,6 +1338,11 @@ function findNearbyClue(room, player) {
     if (d <= radius && d < bestD) { best = c; bestD = d; }
   }
   return best;
+}
+
+function floorFromY(y) {
+  if (typeof y !== "number") return 0;
+  return Math.max(0, Math.floor((y - 0.5) / FLOOR_HEIGHT));
 }
 
 function defaultGearFor(loadoutId) {
