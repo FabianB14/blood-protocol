@@ -794,6 +794,7 @@
       </div>
 
       <div class="modal-actions">
+        <button class="ghost" id="backToTitleBtn">Back to Title</button>
         <button class="ghost" id="closeModalBtn">Resume</button>
       </div>
     </div>
@@ -804,6 +805,7 @@
     import * as THREE from 'three';
     import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
     import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
     // ---------- State ----------
@@ -1281,7 +1283,17 @@
       group.add(eyeR);
       const halo = new THREE.PointLight(0xff2020, 1.2, 5.5, 1.6);
       halo.position.y = 1.8;
+      halo.userData.baseIntensity = 1.2;
       group.add(halo);
+      // Start fully transparent — the proximity/moon code in animate() fades
+      // the body in as the player approaches.
+      group.userData.visibilityAlpha = 0;
+      group.traverse((node) => {
+        if (node.material) {
+          const mats = Array.isArray(node.material) ? node.material : [node.material];
+          mats.forEach((m) => { m.transparent = true; m.opacity = 0; });
+        }
+      });
       vampireMesh = group;
       group.position.set(room.vampirePosition.x, 0, room.vampirePosition.z);
       worldGroup.add(group);
@@ -1565,6 +1577,14 @@
     // Empty = no models installed; meshes fall back to the capsule placeholder.
     const hunterModels = [];
 
+    // Shared GLB loader, with Draco support pre-wired. Models exported from
+    // Blender with 'Draco mesh compression' are 5-10x smaller than uncompressed
+    // GLBs — recommended for anything over a few MB.
+    const dracoLoader = new DRACOLoader();
+    dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/');
+    const gltfLoader = new GLTFLoader();
+    gltfLoader.setDRACOLoader(dracoLoader);
+
     // Cache of additional GLBs (tent, per-house, per-vampire) loaded once at
     // boot. Each entry: { scene, animations } — no auto-scaling here since
     // these models are scene props, not character-sized.
@@ -1572,8 +1592,7 @@
 
     function loadGLTFCached(url) {
       return new Promise((resolve) => {
-        const loader = new GLTFLoader();
-        loader.load(url, resolve, undefined, (err) => {
+        gltfLoader.load(url, resolve, undefined, (err) => {
           console.warn('GLB failed to load:', url, err);
           showNotice(`Could not load ${url.split('/').pop()} — check the browser console.`);
           resolve(null);
@@ -1590,9 +1609,8 @@
 
       // Hunters
       const hunterUrls = manifest.hunters || [];
-      const loader = new GLTFLoader();
       const loaded = await Promise.all(hunterUrls.map((url) => new Promise((resolve) => {
-        loader.load(
+        gltfLoader.load(
           url,
           (gltf) => {
             // Auto-scale to 1.75m tall and plant feet at local y=0 so the
@@ -1603,6 +1621,18 @@
             gltf.scene.scale.setScalar(scale);
             const bbox2 = new THREE.Box3().setFromObject(gltf.scene);
             gltf.scene.position.y -= bbox2.min.y;
+            // Mixamo / many GLBs ship with stale bounding spheres on their
+            // skinned meshes — Three.js will frustum-cull them based on the
+            // un-scaled bounds, so they vanish from view despite being
+            // present. Disable culling so they always render.
+            gltf.scene.traverse((node) => {
+              if (node.isMesh || node.isSkinnedMesh) {
+                node.frustumCulled = false;
+                if (node.geometry && node.geometry.computeBoundingSphere) {
+                  try { node.geometry.computeBoundingSphere(); } catch (_e) {}
+                }
+              }
+            });
             resolve({ url, scene: gltf.scene, animations: gltf.animations });
           },
           undefined,
@@ -1625,7 +1655,18 @@
       // Vampires (per-species id)
       for (const [id, url] of Object.entries(manifest.vampires || {})) {
         const g = await loadGLTFCached(url);
-        if (g) modelCatalog.vampires[id] = { scene: g.scene, animations: g.animations };
+        if (g) {
+          // Same culling defensive as hunters — these may also be Mixamo-rigged
+          g.scene.traverse((node) => {
+            if (node.isMesh || node.isSkinnedMesh) {
+              node.frustumCulled = false;
+              if (node.geometry && node.geometry.computeBoundingSphere) {
+                try { node.geometry.computeBoundingSphere(); } catch (_e) {}
+              }
+            }
+          });
+          modelCatalog.vampires[id] = { scene: g.scene, animations: g.animations };
+        }
       }
     }
 
@@ -1677,7 +1718,10 @@
         // into other players sharing the cached GLB materials.
         const tint = new THREE.Color(colorHex[player.profile?.color] || 0xffffff);
         skinned.traverse((node) => {
-          if (node.isMesh) {
+          if (node.isMesh || node.isSkinnedMesh) {
+            // Disable culling on every clone to avoid the Mixamo-rigged
+            // "ghost hunter" bug where the body's bounding sphere is wrong.
+            node.frustumCulled = false;
             node.material = Array.isArray(node.material)
               ? node.material.map((m) => m.clone())
               : node.material.clone();
@@ -2022,7 +2066,10 @@
         }
       });
 
-      // Vampire bob
+      // Vampire bob + proximity/moon-driven visibility.
+      // The body is invisible at range and slowly resolves as the player
+      // gets closer OR as the moon meter climbs. Crosses to fully visible
+      // when within 4 m, or once the moon is past 70%.
       if (vampireMesh && roomState) {
         const tx = roomState.vampirePosition.x;
         const tz = roomState.vampirePosition.z;
@@ -2032,6 +2079,28 @@
         const dx = controls.getObject().position.x - vampireMesh.position.x;
         const dz = controls.getObject().position.z - vampireMesh.position.z;
         vampireMesh.rotation.y = Math.atan2(dx, dz);
+
+        const distance = Math.hypot(dx, dz);
+        const moonAlpha = Math.max(0, ((roomState.moon || 0) - 30) / 50); // 0 at moon<=30, 1 at moon>=80
+        let proximityAlpha;
+        if (distance < 4) proximityAlpha = 1;
+        else if (distance < 12) proximityAlpha = 1 - (distance - 4) / 8;
+        else proximityAlpha = 0;
+        const target = Math.max(0, Math.min(1, Math.max(proximityAlpha, moonAlpha)));
+        // Smooth toward target so the vampire doesn't pop into view
+        vampireMesh.userData.visibilityAlpha = vampireMesh.userData.visibilityAlpha ?? 0;
+        vampireMesh.userData.visibilityAlpha += (target - vampireMesh.userData.visibilityAlpha) * Math.min(1, dt * 3);
+        const a = vampireMesh.userData.visibilityAlpha;
+        vampireMesh.traverse((node) => {
+          if (node.material) {
+            const mats = Array.isArray(node.material) ? node.material : [node.material];
+            mats.forEach((m) => {
+              m.transparent = true;
+              m.opacity = a;
+            });
+          }
+          if (node.isPointLight) node.intensity = a * (node.userData.baseIntensity || 1.2);
+        });
       }
 
       // Clue bobbing + Investigation-mode highlight: motes within the player's
@@ -2200,7 +2269,9 @@
       $('rewardSlot').innerHTML = '';
       $('deathOverlay').classList.remove('show');
       renderLobby(null);
-      openMenu('lobby');
+      // If the title screen is showing (e.g. user clicked Back to Title) we
+      // don't override it with the lobby modal.
+      if (!titleBack.classList.contains('open')) openMenu('lobby');
       showNotice('Left the room.');
     });
 
@@ -2425,6 +2496,15 @@
 
     $('menuBtn').addEventListener('click', () => openMenu(currentTab));
     $('closeModalBtn').addEventListener('click', closeModal);
+    $('backToTitleBtn').addEventListener('click', () => {
+      // If the player is in a room, leave it first (server handles host
+      // succession and room teardown). The room:left handler builds the
+      // staging area and re-opens lobby; we override and show the title
+      // instead.
+      if (roomState) socket.emit('room:leave');
+      closeModal();
+      showTitle();
+    });
     document.querySelectorAll('.tab').forEach((tab) => {
       tab.addEventListener('click', () => switchTab(tab.dataset.tab));
     });
