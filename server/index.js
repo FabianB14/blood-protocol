@@ -19,26 +19,55 @@ const PLAYER_RADIUS = 0.55;
 const HUNT_TICK_MS = 1500;
 
 const loadouts = {
-  occultist: { name: "Occultist", scanRadius: 3.4, wardCost: 60, kit: ["Sanguine lens", "Ash chalk", "Silver bell", "Field journal"] },
-  sentinel:  { name: "Sentinel",  scanRadius: 1.8, wardCost: 35, kit: ["Iron stakes", "Garlic wire", "UV lantern", "Salt rounds"] },
-  medium:    { name: "Medium",    scanRadius: 2.6, wardCost: 50, kit: ["Spirit radio", "Veil candle", "Bone charm", "Red thread"] },
-  alchemist: { name: "Alchemist", scanRadius: 2.0, wardCost: 45, kit: ["Hemlock serum", "Coagulant flask", "Mercury vial", "Tonic kit"] }
+  occultist: { name: "Occultist", scanRadius: 3.4, wardCost: 60 },
+  sentinel:  { name: "Sentinel",  scanRadius: 1.8, wardCost: 35 },
+  medium:    { name: "Medium",    scanRadius: 2.6, wardCost: 50 },
+  alchemist: { name: "Alchemist", scanRadius: 2.0, wardCost: 45 }
 };
 
-// Each gear item detects specific clue signs. To log a sign you must be near
-// the clue mote with the matching gear EQUIPPED. Field journal is a utility
-// (no detection but extra scan radius via the Occultist loadout etc).
-const gearCatalog = {
-  sanguine_lens: { id: "sanguine_lens", name: "Sanguine Lens",   detects: ["Claw marks", "Blood mist"],          tag: "UV / blood imaging" },
-  spirit_radio:  { id: "spirit_radio",  name: "Spirit Radio",    detects: ["Possessed voice", "Whispering walls", "Ancient lullaby"], tag: "Captures dead voices" },
-  cold_iron:     { id: "cold_iron",     name: "Cold Iron Rod",   detects: ["Cold breath", "Grave soil"],          tag: "Reads temperature drops" },
-  mirror_shard:  { id: "mirror_shard",  name: "Mirror Shard",    detects: ["No reflection"],                       tag: "Catches missing reflections" },
-  rat_lure:      { id: "rat_lure",      name: "Rat Lure",        detects: ["Rat swarm"],                           tag: "Bait for vermin signs" },
-  wormwood:      { id: "wormwood",      name: "Wormwood Censer", detects: ["Floating dust", "Candle snuff"],       tag: "Smoke reveals movement" },
-  black_salt:    { id: "black_salt",    name: "Black Salt Vial", detects: ["Black veins"],                         tag: "Reacts to corrupted flesh" },
-  uv_lantern:    { id: "uv_lantern",    name: "UV Lantern",      detects: ["Claw marks", "Black veins"],           tag: "Reveals hidden marks" },
-  field_journal: { id: "field_journal", name: "Field Journal",   detects: [],                                       tag: "Utility — tracks evidence" }
+// The 10 canonical evidence types from the Nightfall design.
+const evidenceTypes = {
+  blood_traces: { id: "blood_traces", name: "Blood Traces",         description: "Glowing residue under UV light." },
+  emf:          { id: "emf",          name: "EMF Readings",         description: "Electromagnetic field fluctuations." },
+  thermal:      { id: "thermal",      name: "Thermal Anomalies",    description: "Cold spots or heat trails." },
+  spectral:     { id: "spectral",     name: "Spectral Echoes",      description: "Psychic imprints and whispers." },
+  physical:     { id: "physical",     name: "Physical Traces",      description: "Claw marks, bites, and scrapes." },
+  ectoplasm:    { id: "ectoplasm",    name: "Ectoplasmic Residue",  description: "Supernatural slime or mist." },
+  pheromones:   { id: "pheromones",   name: "Pheromone Signatures", description: "Territorial or hunting chemistry." },
+  temporal:     { id: "temporal",     name: "Temporal Distortions", description: "Local time anomalies." },
+  aura:         { id: "aura",         name: "Aura Imprints",        description: "Lingering energy signatures." },
+  sonic:        { id: "sonic",        name: "Sonic Frequencies",    description: "Sounds outside human hearing." }
 };
+
+// One tool per evidence type. Bring a balanced kit or coordinate with the team.
+const gearCatalog = {
+  uv_flashlight:      { id: "uv_flashlight",      name: "UV Flashlight",         detects: "blood_traces", tag: "Reveals supernatural blood residue" },
+  emf_reader:         { id: "emf_reader",         name: "EMF Reader",            detects: "emf",          tag: "Detects vampire EM fields" },
+  thermal_camera:     { id: "thermal_camera",     name: "Thermal Camera",        detects: "thermal",      tag: "Cold spots and heat trails" },
+  spirit_box:         { id: "spirit_box",         name: "Spirit Box",            detects: "spectral",     tag: "Captures psychic whispers" },
+  field_kit:          { id: "field_kit",          name: "Alchemist Field Kit",   detects: "physical",     tag: "Analyzes claw and bite marks" },
+  ectoplasm_detector: { id: "ectoplasm_detector", name: "Ectoplasm Detector",    detects: "ectoplasm",    tag: "Reacts to supernatural slime" },
+  pheromone_analyzer: { id: "pheromone_analyzer", name: "Pheromone Analyzer",    detects: "pheromones",   tag: "Picks up territorial markers" },
+  chronometer:        { id: "chronometer",        name: "Chronometer",           detects: "temporal",     tag: "Detects time anomalies" },
+  aura_reader:        { id: "aura_reader",        name: "Aura Reader",           detects: "aura",         tag: "Sees lingering energy" },
+  ultrasonic_mic:     { id: "ultrasonic_mic",     name: "Ultrasonic Microphone", detects: "sonic",        tag: "Records inhuman frequencies" }
+};
+
+// The 10 vampire species. Each has a unique 3-evidence signature.
+const vampireCatalog = [
+  { id: "nosferatu",       name: "Nosferatu",            evidence: ["physical", "emf", "pheromones"],     banishment: "Mirror shards and blessed salt, performed in total darkness." },
+  { id: "noble",           name: "Vampiric Noble",       evidence: ["spectral", "physical", "aura"],       banishment: "Personal belonging ritual at midnight, under moonlight." },
+  { id: "shade_stalker",   name: "Shade Stalker",        evidence: ["thermal", "spectral", "blood_traces"], banishment: "Burn special incense, flood with bright light." },
+  { id: "blood_alchemist", name: "Blood Alchemist",      evidence: ["blood_traces", "physical", "pheromones"], banishment: "Holy water + its own blood; destroy its alchemical focus." },
+  { id: "mist_walker",     name: "Mist Walker",          evidence: ["ectoplasm", "emf", "thermal"],        banishment: "Trap the mist in a prepared vessel; zero air currents." },
+  { id: "chronovampire",   name: "Chronovampire",        evidence: ["temporal", "physical", "spectral"],   banishment: "Synced cross-time actions using a mortal-past artifact." },
+  { id: "psychic_leech",   name: "Psychic Leech",        evidence: ["aura", "spectral", "sonic"],          banishment: "Combined mental focus of the full team; break illusions." },
+  { id: "feral",           name: "Feral Bloodline",      evidence: ["physical", "pheromones", "thermal"],  banishment: "Silver caging circle; calm the feral nature." },
+  { id: "tech_hybrid",     name: "Technological Hybrid", evidence: ["emf", "physical", "sonic"],           banishment: "Isolate from all tech; trigger an EMP at the climax." },
+  { id: "dreamweaver",     name: "Dreamweaver",          evidence: ["spectral", "aura", "sonic"],          banishment: "Lucid dream together; confront the vampire on its ground." }
+];
+
+const vampireById = (id) => vampireCatalog.find((v) => v.id === id);
 
 const difficulties = {
   amateur:    { id: "amateur",    name: "Amateur",    funds: 800, moonRate: 1.0, fearRate: 1.2, vampireThreshold: 32, gearSlots: 4, evidenceRequired: 3, rewardMult: 0.9 },
@@ -59,8 +88,6 @@ const contracts = [
     name: "Ashbury Manor",
     objective: "Identify the bloodline, find the sealed crypt, and close the family coffin.",
     level: 1,
-    signs: ["Cold breath", "No reflection", "Claw marks"],
-    vampire: "Strigoi",
     mapRows: [
       "############",
       "#S..#......#",
@@ -81,8 +108,6 @@ const contracts = [
     name: "Saint Orla's Hospice",
     objective: "Stabilize the ward, collect patient evidence, and seal the chapel ossuary.",
     level: 2,
-    signs: ["Rat swarm", "Grave soil", "Whispering walls"],
-    vampire: "Nosferatu",
     mapRows: [
       "############",
       "#S.....#...#",
@@ -103,8 +128,6 @@ const contracts = [
     name: "Blackwater Theatre",
     objective: "Trace the midnight performance, mark the stage relics, and bind the backstage coffin.",
     level: 3,
-    signs: ["Blood mist", "Candle snuff", "Ancient lullaby"],
-    vampire: "Moroaica",
     mapRows: [
       "############",
       "#S....#....#",
@@ -125,8 +148,6 @@ const contracts = [
     name: "Greywick Station",
     objective: "Search the abandoned platform, map the possessed signal, and seal the baggage vault.",
     level: 4,
-    signs: ["Possessed voice", "Floating dust", "Black veins"],
-    vampire: "Vetala",
     mapRows: [
       "############",
       "#S..#......#",
@@ -147,8 +168,6 @@ const contracts = [
     name: "Lazarus Industries",
     objective: "Trace the corrupted servers, isolate the lab, and EMP the cradle in the lower vault.",
     level: 3,
-    signs: ["EMF Readings", "Physical Traces", "Sonic Frequencies"],
-    vampire: "Technological Hybrid",
     mapRows: [
       "############",
       "#S....#....#",
@@ -169,8 +188,6 @@ const contracts = [
     name: "Wraithmoor Sanitarium",
     objective: "Map the patient ward, recover the dream journals, and break the leech's grip.",
     level: 3,
-    signs: ["Aura Imprints", "Spectral Echoes", "Sonic Frequencies"],
-    vampire: "Psychic Leech",
     mapRows: [
       "############",
       "#S..#..#...#",
@@ -191,8 +208,6 @@ const contracts = [
     name: "Ravenhall Estate",
     objective: "Slip through the ballroom, recover a personal effect, and complete the midnight rite.",
     level: 2,
-    signs: ["Spectral Echoes", "Physical Traces", "Aura Imprints"],
-    vampire: "Vampiric Noble",
     mapRows: [
       "############",
       "#S.....#...#",
@@ -241,6 +256,17 @@ app.get("/api/gear", (_req, res) => {
 
 app.get("/api/difficulties", (_req, res) => {
   res.json(Object.values(difficulties));
+});
+
+app.get("/api/evidence-types", (_req, res) => {
+  res.json(Object.values(evidenceTypes));
+});
+
+app.get("/api/vampires", (_req, res) => {
+  // Public catalog: include the evidence signatures so the client journal can
+  // narrow down suspects as players confirm clues. Banishment text stays
+  // hidden until the species is revealed at match end.
+  res.json(vampireCatalog.map((v) => ({ id: v.id, name: v.name, evidence: v.evidence })));
 });
 
 const TEX_SURFACES = ["wall", "floor", "crypt", "ceiling"];
@@ -354,8 +380,9 @@ function makeRoom(code = makeCode(), contractId, difficultyId) {
     moonRate: diff.moonRate,
     fearRate: diff.fearRate,
     rewardMult: diff.rewardMult,
-    vampire: contract.vampire,
-    signs: contract.signs,
+    vampireId: null,
+    vampire: "Unknown",
+    signs: [],
     mapRows: contract.mapRows,
     clueSpots: contract.clueSpots,
     cryptPosition: contract.cryptPosition,
@@ -410,7 +437,9 @@ function publicRoom(room) {
     threat: room.threat,
     result: room.result,
     rewards: room.rewards,
-    revealedVampire: room.evidence.length >= room.evidenceRequired || room.phase === "complete" ? room.vampire : "Unknown"
+    vampireId: (room.evidence.length >= room.evidenceRequired || room.phase === "complete") ? room.vampireId : null,
+    revealedVampire: (room.evidence.length >= room.evidenceRequired || room.phase === "complete") ? room.vampire : "Unknown",
+    banishment: (room.evidence.length >= room.evidenceRequired || room.phase === "complete") ? (vampireById(room.vampireId)?.banishment || "") : ""
   };
 }
 
@@ -487,8 +516,10 @@ function applyContract(room, contract) {
   room.contract = contract.name;
   room.objective = contract.objective;
   room.level = contract.level;
-  room.vampire = contract.vampire;
-  room.signs = contract.signs;
+  // Vampire and signs are now picked dynamically per match (see startHunt)
+  room.vampireId = null;
+  room.vampire = "Unknown";
+  room.signs = [];
   room.mapRows = contract.mapRows;
   room.clueSpots = contract.clueSpots;
   room.cryptPosition = contract.cryptPosition;
@@ -541,6 +572,10 @@ function resetMatch(room, contractId, difficultyId) {
   });
 }
 
+function pickVampireForMatch() {
+  return vampireCatalog[Math.floor(Math.random() * vampireCatalog.length)];
+}
+
 function startHunt(room) {
   room.phase = "hunt";
   room.fear = 18;
@@ -553,6 +588,16 @@ function startHunt(room) {
   room.result = null;
   room.rewards = null;
   room.tickCount = 0;
+
+  // Pick this match's vampire and seed the map's clue spots with its evidence.
+  // Shuffle so the player can't memorize "spot 0 = first listed evidence."
+  const vampire = pickVampireForMatch();
+  room.vampireId = vampire.id;
+  room.vampire = vampire.name;
+  const shuffled = vampire.evidence.slice().sort(() => Math.random() - 0.5);
+  // Trim to the number of clue spots on the map (always 3 in current maps)
+  room.signs = shuffled.slice(0, room.clueSpots.length);
+
   // Pin difficulty defaults applied to current difficulty
   applyDifficulty(room, room.difficultyId || DEFAULT_DIFFICULTY);
   Object.values(room.players).forEach((p) => {
@@ -703,10 +748,6 @@ io.on("connection", (socket) => {
       socket.emit("notice", { type: "error", message: "Equip a tool first (1-4 to switch)." });
       return;
     }
-    if (equipped.detects.length === 0) {
-      socket.emit("notice", { type: "info", message: `${equipped.name} is a utility — it can't log evidence.` });
-      return;
-    }
     const nearby = findNearbyClue(room, player);
     if (!nearby) {
       room.fear = Math.min(100, room.fear + 2);
@@ -714,7 +755,7 @@ io.on("connection", (socket) => {
       emitRoom(room);
       return;
     }
-    if (!equipped.detects.includes(nearby.sign)) {
+    if (equipped.detects !== nearby.sign) {
       socket.emit("notice", { type: "error", message: `${equipped.name} can't read this trace — try another tool.` });
       room.fear = Math.min(100, room.fear + 1);
       emitRoom(room);
@@ -728,7 +769,8 @@ io.on("connection", (socket) => {
     room.funds += 90;
     room.fear = Math.max(0, room.fear - 6);
     room.threat = Math.min(100, room.threat + 6);
-    addLog(room, `Evidence logged: ${nearby.sign} (via ${equipped.name}).`);
+    const signName = evidenceTypes[nearby.sign]?.name || nearby.sign;
+    addLog(room, `Evidence logged: ${signName} (via ${equipped.name}).`);
     emitRoom(room);
   });
 
@@ -924,6 +966,7 @@ function finishMatch(room, success, message) {
       level: room.level,
       rank: room.rewards.rank,
       total: room.rewards.total,
+      vampire: room.vampire,
       players: Object.values(room.players).map((p) => p.name),
       leader: top ? top.name : "Hunter",
       timestamp: Date.now()
@@ -954,11 +997,11 @@ function findNearbyClue(room, player) {
 
 function defaultGearFor(loadoutId) {
   switch (loadoutId) {
-    case "occultist": return ["sanguine_lens", "spirit_radio", "cold_iron", "field_journal"];
-    case "sentinel":  return ["uv_lantern", "cold_iron", "black_salt", "rat_lure"];
-    case "medium":    return ["spirit_radio", "mirror_shard", "wormwood", "field_journal"];
-    case "alchemist": return ["black_salt", "wormwood", "cold_iron", "field_journal"];
-    default:          return ["sanguine_lens", "spirit_radio", "cold_iron", "field_journal"];
+    case "occultist": return ["aura_reader", "spirit_box", "uv_flashlight", "emf_reader"];
+    case "sentinel":  return ["emf_reader", "uv_flashlight", "thermal_camera", "pheromone_analyzer"];
+    case "medium":    return ["spirit_box", "ultrasonic_mic", "aura_reader", "chronometer"];
+    case "alchemist": return ["field_kit", "ectoplasm_detector", "pheromone_analyzer", "thermal_camera"];
+    default:          return ["uv_flashlight", "emf_reader", "spirit_box", "field_kit"];
   }
 }
 

@@ -486,6 +486,7 @@
         <kbd>E</kbd> scan
         <kbd>Q</kbd> ward
         <kbd>F</kbd> seal
+        <kbd>J</kbd> journal
         <kbd>TAB</kbd> menu
       </div>
       <button class="ghost" id="menuBtn">Menu</button>
@@ -524,6 +525,7 @@
           <div class="tab" data-tab="contracts">Contracts</div>
           <div class="tab" data-tab="loadout">Loadout</div>
           <div class="tab" data-tab="leaderboard">Leaderboard</div>
+          <div class="tab" data-tab="journal">Field Journal</div>
           <div class="tab" data-tab="howto">How to Play</div>
         </div>
       </div>
@@ -625,21 +627,30 @@
         </div>
         <table class="lb-table">
           <thead>
-            <tr><th>#</th><th>Hunter</th><th>Contract</th><th>Level</th><th>Rank</th><th>Total</th><th>When</th></tr>
+            <tr><th>#</th><th>Hunter</th><th>Contract</th><th>Bloodline</th><th>Level</th><th>Rank</th><th>Total</th><th>When</th></tr>
           </thead>
           <tbody id="lbBody"></tbody>
         </table>
       </div>
 
+      <!-- Field Journal -->
+      <div id="tab-journal" class="tab-panel" style="display:none">
+        <p style="color:var(--muted); font-size:13px; margin:0 0 14px;">Each bloodline leaves a unique trio of evidence. Confirm signs in the field to narrow the suspects.</p>
+        <div id="journalSummary" style="margin-bottom: 14px;"></div>
+        <div class="grid-2" id="journalGrid"></div>
+      </div>
+
       <!-- How to play -->
       <div id="tab-howto" class="tab-panel" style="display:none">
         <div style="display:grid; gap:10px; color:var(--muted); font-size:13px; line-height:1.55;">
-          <p><strong style="color:var(--ink)">Goal.</strong> Each contract hides a bloodline. Find three signs, return to the crypt, and seal the coffin before fear or the moon hits 100%.</p>
-          <p><strong style="color:var(--ink)">Move.</strong> WASD to walk, hold SHIFT to run. Mouse to look around. Click the canvas to lock the pointer.</p>
-          <p><strong style="color:var(--ink)">Scan (E).</strong> Stand near a glowing clue mote and press E. Your loadout affects scan radius — Occultists see further.</p>
-          <p><strong style="color:var(--ink)">Wards (Q).</strong> Burn a ward at your feet to push back the vampire's threat. Costs funds.</p>
-          <p><strong style="color:var(--ink)">Seal (F).</strong> With all three signs logged, stand on the red crypt floor and press F.</p>
-          <p><strong style="color:var(--ink)">Vampire.</strong> The longer you linger, the more the threat builds. When it hooks past the threshold it walks toward the nearest hunter. Wards burn it back.</p>
+          <p><strong style="color:var(--ink)">Goal.</strong> Identify the bloodline by gathering its 3 evidence signs, then return to the crypt and seal it before fear or the moon hits 100%.</p>
+          <p><strong style="color:var(--ink)">Ten species, ten signatures.</strong> Each match picks one of ten vampires at random. Every species leaves a unique trio from a shared pool of ten evidence types — and each evidence type is read by exactly one tool. Bring a diverse loadout or coordinate with your team.</p>
+          <p><strong style="color:var(--ink)">Move.</strong> WASD to walk, SHIFT to sprint, mouse to look. Click the canvas to lock the pointer. On mobile, use the joystick and drag-look.</p>
+          <p><strong style="color:var(--ink)">Scan (E).</strong> Stand near a glowing clue mote with the right tool equipped, then press E. The wrong tool can't read the trace.</p>
+          <p><strong style="color:var(--ink)">Switch tools (1-4).</strong> Cycle through your equipped gear with the number keys (or tap the hotbar).</p>
+          <p><strong style="color:var(--ink)">Field Journal (J).</strong> Lists all ten suspects. Each confirmed evidence narrows the list — when one suspect remains you've identified the species.</p>
+          <p><strong style="color:var(--ink)">Wards (Q).</strong> Burn a ward at your feet to push the vampire's threat down. Costs funds.</p>
+          <p><strong style="color:var(--ink)">Seal (F).</strong> With enough evidence logged, stand on the red crypt floor and press F to banish.</p>
           <p><strong style="color:var(--ink)">Multiplayer.</strong> Host shares the room code or invite link. All hunters must Ready Up; only the host can start.</p>
         </div>
       </div>
@@ -693,8 +704,12 @@
 
     let roomState = null;
     let availableContracts = [];
-    let availableGear = []; // [{id, name, detects, tag}]
+    let availableGear = []; // [{id, name, detects (evidence-type id), tag}]
     let availableDifficulties = [];
+    let availableEvidence = []; // [{id, name, description}]
+    let availableVampires = []; // [{id, name, evidence:[ids]}]
+    let evidenceById = {};
+    let vampireById = {};
 
     // Per-browser gear loadout, persisted
     local.gear = Array.isArray(savedProfile.gear) ? savedProfile.gear : ['sanguine_lens', 'spirit_radio', 'cold_iron'];
@@ -1163,6 +1178,7 @@
       if (e.code === 'KeyE') socket.emit('match:scan');
       if (e.code === 'KeyQ') socket.emit('match:ward');
       if (e.code === 'KeyF') socket.emit('match:seal');
+      if (e.code === 'KeyJ') openMenu('journal');
       if (e.code.startsWith('Digit')) {
         const n = parseInt(e.code.slice(5), 10);
         if (n >= 1 && n <= (local.gear?.length || 0)) {
@@ -1481,6 +1497,7 @@
 
       renderHUD(room);
       renderLobby(room);
+      if (currentTab === 'journal' && modalOpen()) renderJournal();
     });
 
     socket.on('room:tick', (tick) => {
@@ -1555,19 +1572,19 @@
 
     function renderEvidence(room) {
       const required = room.evidenceRequired || 3;
-      const gearById = Object.fromEntries(availableGear.map((g) => [g.id, g]));
-      const myEquippedId = local.gear?.[local.equipped];
-      const myEquipped = myEquippedId ? gearById[myEquippedId] : null;
-      const html = (room.signs || []).map((sign) => {
-        const found = room.evidence.includes(sign);
-        const canDetect = myEquipped?.detects?.includes(sign);
-        const detectTag = found
-          ? ' <small style="color:var(--mint)">/ logged</small>'
-          : canDetect ? ' <small style="color:var(--amber)">/ your tool reads this</small>' : '';
-        return `<div class="ev-row ${found ? 'found' : ''}"><div class="ev-dot"></div><div>${escapeHtml(sign)}${detectTag}</div></div>`;
+      // Show only the evidence the player has confirmed (signs at unfound spots
+      // aren't revealed yet — that's the whole point of the deduction).
+      const collected = room.evidence || [];
+      const html = collected.map((id) => {
+        const name = evidenceById[id]?.name || id;
+        return `<div class="ev-row found"><div class="ev-dot"></div><div>${escapeHtml(name)} <small style="color:var(--mint)">/ logged</small></div></div>`;
       }).join('');
-      const meta = `<div style="font-size:11px; color:var(--muted); margin-top:8px;">${room.evidence.length}/${required} required to seal</div>`;
-      $('evidenceList').innerHTML = (html || '<div style="color:var(--muted); font-size:12px;">No clues yet.</div>') + meta;
+      const remaining = Math.max(0, required - collected.length);
+      const tail = remaining > 0
+        ? `<div class="ev-row"><div class="ev-dot"></div><div style="color:var(--muted)">${remaining} more to identify the bloodline</div></div>`
+        : '';
+      const meta = `<div style="font-size:11px; color:var(--muted); margin-top:8px;">${collected.length}/${required} required to seal — open the Field Journal (J) to narrow suspects.</div>`;
+      $('evidenceList').innerHTML = (html + tail || '<div style="color:var(--muted); font-size:12px;">No clues yet.</div>') + meta;
     }
 
     function renderPlayers(room) {
@@ -1651,11 +1668,41 @@
         contracts: 'Contracts',
         loadout: 'Loadout',
         leaderboard: 'Leaderboard',
+        journal: 'Field Journal',
         howto: 'How to Play'
       })[tab] || 'Menu';
       if (tab === 'leaderboard') loadLeaderboard();
       if (tab === 'contracts') { renderDifficultyGrid(); renderContractGrid(); }
       if (tab === 'loadout') { renderLoadoutGrid(); renderGearGrid(); }
+      if (tab === 'journal') renderJournal();
+    }
+
+    function renderJournal() {
+      const confirmed = new Set(roomState?.evidence || []);
+      const required = roomState?.evidenceRequired || 3;
+      const revealed = roomState?.vampireId; // server only sends after match end / full evidence
+      const possibleVampires = availableVampires.filter((v) => [...confirmed].every((c) => v.evidence.includes(c)));
+
+      $('journalSummary').innerHTML = `
+        <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center; padding:10px 12px; background:rgba(255,255,255,.04); border-radius:8px; border:1px solid var(--line);">
+          <div><strong style="font-size:14px;">${confirmed.size}/${required}</strong> <small style="color:var(--muted)">evidence confirmed</small></div>
+          <div><strong style="font-size:14px;">${possibleVampires.length}</strong> <small style="color:var(--muted)">suspect${possibleVampires.length === 1 ? '' : 's'} remaining</small></div>
+          ${revealed ? `<div style="margin-left:auto"><strong style="color:var(--amber)">Bloodline identified:</strong> ${escapeHtml(roomState.revealedVampire)}</div>` : ''}
+        </div>`;
+
+      $('journalGrid').innerHTML = availableVampires.map((v) => {
+        const matchesAllConfirmed = [...confirmed].every((c) => v.evidence.includes(c));
+        const isRevealed = revealed === v.id;
+        const dimmed = !matchesAllConfirmed;
+        return `<div class="loadout-card ${isRevealed ? 'selected' : ''}" style="opacity:${dimmed ? .35 : 1}">
+          <strong>${escapeHtml(v.name)}${isRevealed ? ' <small style="color:var(--amber)">/ this match’s species</small>' : ''}</strong>
+          <small>Evidence: ${v.evidence.map((id) => {
+            const name = evidenceById[id]?.name || id;
+            const got = confirmed.has(id);
+            return `<span style="${got ? 'color:var(--mint); font-weight:900;' : 'color:var(--muted);'}">${escapeHtml(name)}</span>`;
+          }).join(' / ')}</small>
+        </div>`;
+      }).join('');
     }
 
     function renderLobby(room) {
@@ -1765,11 +1812,11 @@
       const selected = new Set(local.gear);
       $('gearGrid').innerHTML = availableGear.map((g) => {
         const isSel = selected.has(g.id);
-        const detects = g.detects.length ? `<span class="detects">Detects: ${g.detects.map(escapeHtml).join(' / ')}</span>` : `<span class="detects" style="color:var(--muted)">Utility</span>`;
+        const evName = evidenceById[g.detects]?.name || g.detects || 'Utility';
         return `<div class="gear-card ${isSel ? 'selected' : ''}" data-gear="${g.id}">
           <strong>${escapeHtml(g.name)}</strong>
           <small>${escapeHtml(g.tag)}</small>
-          ${detects}
+          <span class="detects">Detects: ${escapeHtml(evName)}</span>
         </div>`;
       }).join('');
       document.querySelectorAll('[data-gear]').forEach((el) => {
@@ -1804,11 +1851,12 @@
           <td>${i + 1}</td>
           <td>${escapeHtml(r.leader)}${r.players && r.players.length > 1 ? ` <small style="color:var(--muted)">+${r.players.length - 1}</small>` : ''}</td>
           <td>${escapeHtml(r.contract)}</td>
+          <td>${escapeHtml(r.vampire || '—')}</td>
           <td>${r.level}</td>
           <td class="lb-rank ${r.rank}">${r.rank}</td>
           <td>$${r.total}</td>
           <td><small style="color:var(--muted)">${timeAgo(r.timestamp)}</small></td>
-        </tr>`).join('') : '<tr><td colspan="7" style="text-align:center; color:var(--muted); padding:24px;">No scores yet. Be the first to seal a coffin.</td></tr>';
+        </tr>`).join('') : '<tr><td colspan="8" style="text-align:center; color:var(--muted); padding:24px;">No scores yet. Be the first to seal a coffin.</td></tr>';
       } catch (err) {
         $('lbBody').innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--muted); padding:24px;">Could not load leaderboard.</td></tr>';
       }
@@ -1912,6 +1960,22 @@
       } catch (_e) {}
     }
 
+    async function loadEvidenceTypes() {
+      try {
+        const res = await fetch('/api/evidence-types');
+        availableEvidence = await res.json();
+        evidenceById = Object.fromEntries(availableEvidence.map((e) => [e.id, e]));
+      } catch (_e) {}
+    }
+
+    async function loadVampires() {
+      try {
+        const res = await fetch('/api/vampires');
+        availableVampires = await res.json();
+        vampireById = Object.fromEntries(availableVampires.map((v) => [v.id, v]));
+      } catch (_e) {}
+    }
+
     // Profile input bindings
     $('playerName').value = local.name;
     $('profileTitle').value = local.profile.title;
@@ -1964,8 +2028,16 @@
     }
 
     // ---------- Boot ----------
-    Promise.all([loadContracts(), loadGear(), loadDifficulties(), loadOwnProfile()]).then(() => {
+    Promise.all([
+      loadContracts(),
+      loadGear(),
+      loadDifficulties(),
+      loadEvidenceTypes(),
+      loadVampires(),
+      loadOwnProfile()
+    ]).then(() => {
       renderHotbar();
+      if (roomState) renderEvidence(roomState);
     });
     loadTextures().then(() => {
       if (roomState) {
