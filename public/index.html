@@ -101,6 +101,7 @@
     .brand h1 { margin: 0; font-size: clamp(18px, 2.6vw, 28px); line-height: 1; }
     .brand span { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; }
     .status { color: var(--muted); font-size: 12px; font-weight: 800; text-align: right; }
+    .notice { color: var(--amber); font-size: 12px; font-weight: 800; min-height: 16px; }
 
     main {
       width: min(1520px, 100%);
@@ -147,6 +148,7 @@
     .stack { display: grid; gap: 10px; padding: 14px; }
     .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     .row > input { flex: 1 1 120px; min-width: 0; }
+    .row > select { flex: 1 1 130px; min-width: 0; }
 
     .player, .loadout, .evidence, .item, .meter, .log {
       border: 1px solid var(--line);
@@ -161,6 +163,7 @@
       align-items: center;
       padding: 10px;
     }
+    .player.host { border-color: rgba(225,169,87,.45); background: rgba(225,169,87,.09); }
 
     .avatar {
       width: 42px;
@@ -171,6 +174,10 @@
       font-weight: 900;
       background: linear-gradient(145deg, rgba(85,199,166,.28), rgba(108,167,216,.22));
     }
+    .avatar.blue { background: linear-gradient(145deg, rgba(108,167,216,.42), rgba(50,78,130,.7)); }
+    .avatar.amber { background: linear-gradient(145deg, rgba(225,169,87,.48), rgba(112,75,25,.75)); color: #190f08; }
+    .avatar.red { background: linear-gradient(145deg, rgba(183,53,53,.5), rgba(66,20,28,.82)); }
+    .avatar.teal { background: linear-gradient(145deg, rgba(85,199,166,.42), rgba(52,111,115,.72)); color: #06100e; }
 
     strong, small { display: block; }
     small { color: var(--muted); margin-top: 3px; font-size: 12px; }
@@ -179,6 +186,7 @@
     .loadout.selected { border-color: rgba(183,53,53,.68); background: rgba(183,53,53,.14); }
     .primary { background: linear-gradient(135deg, #b73535, #8d2d42); border-color: rgba(255,255,255,.18); }
     .secondary { background: rgba(225,169,87,.13); border-color: rgba(225,169,87,.3); }
+    .ghost { background: rgba(255,255,255,.04); }
 
     .game-shell { display: grid; gap: 14px; }
     .mission-bar { display: grid; grid-template-columns: 1.2fr .8fr; gap: 14px; }
@@ -293,10 +301,27 @@
             <input id="roomCode" placeholder="Code" maxlength="8" aria-label="Room code">
           </div>
           <div class="row">
+            <select id="profileTitle" aria-label="Profile title">
+              <option>New Blood</option>
+              <option>Crypt Runner</option>
+              <option>Ward Keeper</option>
+              <option>Night Medic</option>
+              <option>Relic Hunter</option>
+            </select>
+            <select id="profileColor" aria-label="Profile color">
+              <option value="teal">Teal</option>
+              <option value="blue">Blue</option>
+              <option value="amber">Amber</option>
+              <option value="red">Red</option>
+            </select>
+          </div>
+          <div class="row">
             <button class="primary" id="hostBtn">Host</button>
             <button class="secondary" id="joinBtn">Join</button>
             <button class="secondary" id="readyBtn">Ready</button>
+            <button class="ghost" id="copyBtn">Copy Link</button>
           </div>
+          <div class="notice" id="notice"></div>
         </div>
         <div class="stack" id="players"></div>
         <div class="side-section">
@@ -312,8 +337,8 @@
             <p>Host a lobby, share the room code, ready up, and begin the hunt. Movement and match state sync through the server.</p>
             <div class="action-row">
               <button class="primary" id="startBtn">Start Hunt</button>
+              <button class="secondary" id="contractBtn">New Contract</button>
               <button class="secondary" id="scanBtn">Scan</button>
-              <button class="secondary" id="wardBtn">Ward</button>
             </div>
           </div>
           <div class="panel">
@@ -332,6 +357,7 @@
             <button id="upBtn" aria-label="Move up">Up</button>
             <button id="rightBtn" aria-label="Move right">Right</button>
             <button class="wide" id="downBtn" aria-label="Move down">Down</button>
+            <button class="wide" id="wardBtn">Ward</button>
             <button class="wide" id="sealBtn">Seal Coffin</button>
           </div>
         </div>
@@ -365,7 +391,7 @@
       { id: "medium", name: "Medium", tag: "Hears the dead through walls", items: ["Spirit radio", "Veil candle", "Bone charm", "Red thread"] },
       { id: "alchemist", name: "Alchemist", tag: "Stabilizes fear and funds", items: ["Hemlock serum", "Coagulant flask", "Mercury vial", "Tonic kit"] }
     ];
-    const signs = ["Cold breath", "No reflection", "Claw marks"];
+    const defaultSigns = ["Cold breath", "No reflection", "Claw marks"];
     const mapRows = [
       "############",
       "#S..#......#",
@@ -377,11 +403,25 @@
       "#......K...#",
       "############"
     ];
-    const clues = [{ x: 7, y: 1, sign: signs[0] }, { x: 5, y: 5, sign: signs[1] }, { x: 8, y: 7, sign: signs[2] }];
+    const clueSpots = [{ x: 7, y: 1 }, { x: 5, y: 5 }, { x: 8, y: 7 }];
     const socket = io();
-    const local = { room: null, loadout: "occultist", ready: false, position: { x: 1, y: 1 } };
+    const savedProfile = JSON.parse(localStorage.getItem("bloodProtocolProfile") || "{}");
+    const local = {
+      room: null,
+      loadout: savedProfile.loadout || "occultist",
+      ready: false,
+      position: { x: 1, y: 1 },
+      profile: {
+        color: savedProfile.color || "teal",
+        title: savedProfile.title || "New Blood"
+      }
+    };
     let roomState = null;
     const $ = (id) => document.getElementById(id);
+
+    $("playerName").value = savedProfile.name || "Hunter";
+    $("profileTitle").value = local.profile.title;
+    $("profileColor").value = local.profile.color;
 
     socket.on("connect", () => {
       $("connectionStatus").textContent = "Connected";
@@ -395,14 +435,24 @@
       roomState = room;
       local.room = room.code;
       $("roomCode").value = room.code;
+      const me = room.players.find((player) => player.id === socket.id);
+      if (me) {
+        local.ready = me.ready;
+        local.position = me.position || local.position;
+      }
+      if (room.result === "success") showNotice(`Coffin sealed. The ${room.revealedVampire} is contained.`);
+      if (room.result === "failed") showNotice("The hunt failed. Load a new contract from the lobby.");
       renderAll();
     });
+
+    socket.on("notice", (notice) => showNotice(notice.message));
 
     function joinPayload() {
       return {
         code: $("roomCode").value,
         name: $("playerName").value || "Hunter",
-        loadout: local.loadout
+        loadout: local.loadout,
+        profile: local.profile
       };
     }
 
@@ -410,23 +460,39 @@
       socket.emit("player:update", {
         name: $("playerName").value || "Hunter",
         loadout: local.loadout,
+        profile: local.profile,
         ready: local.ready,
         position: local.position,
         ...extra
       });
+      saveProfile();
     }
 
     $("hostBtn").addEventListener("click", () => socket.emit("room:create", joinPayload()));
-    $("joinBtn").addEventListener("click", () => socket.emit("room:join", joinPayload()));
+    $("joinBtn").addEventListener("click", () => {
+      socket.emit("room:join", joinPayload(), (response) => {
+        if (response && !response.ok) showNotice(response.message);
+      });
+    });
     $("readyBtn").addEventListener("click", () => {
       local.ready = !local.ready;
       updatePlayer();
     });
     $("playerName").addEventListener("change", () => updatePlayer());
+    $("profileTitle").addEventListener("change", () => {
+      local.profile.title = $("profileTitle").value;
+      updatePlayer();
+    });
+    $("profileColor").addEventListener("change", () => {
+      local.profile.color = $("profileColor").value;
+      updatePlayer();
+    });
     $("startBtn").addEventListener("click", () => socket.emit("match:start"));
+    $("contractBtn").addEventListener("click", () => socket.emit("match:new-contract"));
     $("scanBtn").addEventListener("click", scan);
     $("wardBtn").addEventListener("click", ward);
     $("sealBtn").addEventListener("click", seal);
+    $("copyBtn").addEventListener("click", copyInvite);
     $("upBtn").addEventListener("click", () => move(0, -1));
     $("downBtn").addEventListener("click", () => move(0, 1));
     $("leftBtn").addEventListener("click", () => move(-1, 0));
@@ -443,10 +509,13 @@
     });
 
     function renderAll() {
-      const room = roomState || { code: "No room", contract: "Ashbury Manor", fear: 18, moon: 45, funds: 640, players: [], evidence: [], wards: [], logs: ["Host or join a lobby to begin."], revealedVampire: "Unknown" };
+      const room = roomState || { code: "No room", contract: "Ashbury Manor", phase: "lobby", fear: 18, moon: 45, funds: 640, players: [], signs: defaultSigns, evidence: [], wards: [], logs: ["Host or join a lobby to begin."], revealedVampire: "Unknown" };
       $("lobbyCode").textContent = `LOBBY: ${room.code}`;
-      $("contractTitle").textContent = `Contract: ${room.contract}`;
+      $("contractTitle").textContent = `Contract: ${room.contract} / ${room.phase}`;
       $("vampireType").textContent = room.revealedVampire;
+      $("startBtn").disabled = room.hostId !== socket.id || room.phase === "hunt";
+      $("contractBtn").disabled = room.hostId !== socket.id || room.phase === "hunt";
+      $("readyBtn").textContent = local.ready ? "Unready" : "Ready";
       renderPlayers(room);
       renderLoadouts();
       renderInventory();
@@ -459,9 +528,12 @@
     function renderPlayers(room) {
       $("players").innerHTML = room.players.map((player) => {
         const loadout = loadouts.find((item) => item.id === player.loadout)?.name || "Hunter";
-        return `<div class="player">
-          <div class="avatar">${escapeHtml(player.name[0] || "H")}</div>
-          <div><strong>${escapeHtml(player.name)}</strong><small>${loadout}</small></div>
+        const host = player.id === room.hostId;
+        const color = player.profile?.color || "teal";
+        const title = player.profile?.title || "New Blood";
+        return `<div class="player ${host ? "host" : ""}">
+          <div class="avatar ${escapeHtml(color)}">${escapeHtml(player.name[0] || "H")}</div>
+          <div><strong>${escapeHtml(player.name)}</strong><small>${escapeHtml(title)} / ${loadout}${host ? " / Host" : ""}</small></div>
           <span class="pill">${player.ready ? "Ready" : "Choosing"}</span>
         </div>`;
       }).join("") || `<div class="log">No hunters in this room yet.</div>`;
@@ -476,6 +548,7 @@
         button.addEventListener("click", () => {
           local.loadout = button.dataset.loadout;
           updatePlayer();
+          saveProfile();
           renderAll();
         });
       });
@@ -487,6 +560,7 @@
     }
 
     function renderEvidence(room) {
+      const signs = room.signs || defaultSigns;
       $("evidence").innerHTML = signs.map((sign) => `<div class="evidence ${room.evidence.includes(sign) ? "found" : ""}">
         <span>${room.evidence.includes(sign) ? "Y" : "?"}</span>
         <strong>${sign}</strong>
@@ -514,6 +588,7 @@
       for (let y = 0; y < mapRows.length; y += 1) {
         for (let x = 0; x < mapRows[y].length; x += 1) {
           const char = mapRows[y][x];
+          const clues = getClues(room);
           const clue = clues.find((item) => item.x === x && item.y === y && !room.evidence.includes(item.sign));
           const classes = ["tile"];
           if (char === "#") classes.push("wall");
@@ -543,6 +618,7 @@
 
     function move(dx, dy) {
       if (!roomState) return;
+      if (roomState.phase !== "hunt") return showNotice("Start the hunt before moving through the manor.");
       const next = { x: local.position.x + dx, y: local.position.y + dy };
       if ((mapRows[next.y]?.[next.x] || "#") === "#") return;
       local.position = next;
@@ -552,21 +628,52 @@
 
     function scan() {
       if (!roomState) return;
+      if (roomState.phase !== "hunt") return showNotice("Start the hunt before scanning.");
+      const clues = getClues(roomState);
       const clue = clues.find((item) => !roomState.evidence.includes(item.sign) && Math.abs(item.x - local.position.x) <= 1 && Math.abs(item.y - local.position.y) <= 1);
       socket.emit("match:event", clue ? { kind: "evidence", value: clue.sign } : { kind: "tick" });
     }
 
     function ward() {
       if (!roomState) return;
+      if (roomState.phase !== "hunt") return showNotice("Start the hunt before placing wards.");
       socket.emit("match:event", { kind: "ward", x: local.position.x, y: local.position.y });
     }
 
     function seal() {
       if (!roomState) return;
-      if (roomState.evidence.length >= 3 && mapRows[local.position.y]?.[local.position.x] === "C") {
-        alert(`Coffin sealed. The ${roomState.revealedVampire} is contained.`);
-      } else {
-        alert("Find all three signs and stand in the coffin room first.");
+      socket.emit("match:seal");
+    }
+
+    function getClues(room) {
+      const signs = room.signs || defaultSigns;
+      return clueSpots.map((spot, index) => ({ ...spot, sign: signs[index] }));
+    }
+
+    function showNotice(message) {
+      $("notice").textContent = message || "";
+      if (message) window.setTimeout(() => {
+        if ($("notice").textContent === message) $("notice").textContent = "";
+      }, 4200);
+    }
+
+    function saveProfile() {
+      localStorage.setItem("bloodProtocolProfile", JSON.stringify({
+        name: $("playerName").value || "Hunter",
+        loadout: local.loadout,
+        color: local.profile.color,
+        title: local.profile.title
+      }));
+    }
+
+    async function copyInvite() {
+      if (!roomState) return showNotice("Host or join a lobby first.");
+      const invite = `${location.origin}/?room=${roomState.code}`;
+      try {
+        await navigator.clipboard.writeText(invite);
+        showNotice(`Copied invite for room ${roomState.code}.`);
+      } catch (_error) {
+        showNotice(`Invite: ${invite}`);
       }
     }
 
@@ -581,7 +688,16 @@
     }
 
     renderAll();
-    socket.emit("room:create", joinPayload());
+    const params = new URLSearchParams(location.search);
+    const roomFromUrl = params.get("room");
+    if (roomFromUrl) {
+      $("roomCode").value = roomFromUrl.toUpperCase();
+      socket.emit("room:join", joinPayload(), (response) => {
+        if (response && !response.ok) socket.emit("room:create", joinPayload());
+      });
+    } else {
+      socket.emit("room:create", joinPayload());
+    }
   </script>
 </body>
 </html>
