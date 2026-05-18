@@ -10,6 +10,7 @@ Bloodline Protocol is a realtime browser prototype for a co-op vampire investiga
 - Saved browser profiles with names, titles, colors, and loadouts
 - Host-owned rooms with ready checks and host-only contract controls
 - Server-owned match state for players, loadouts, movement, evidence, wards, fear, moon, funds, and results
+- Server-side vampire pursuit, threat meter, hunt events, ward counterplay, and payout grades
 - Render-ready `render.yaml`
 
 ## Render Setup
@@ -38,8 +39,8 @@ http://localhost:4173
 
 ## Roadmap
 
-1. Add server-side vampire movement and hunt events.
-2. Add richer match results and post-game rewards.
+1. Add richer mission variety and additional map layouts.
+2. Add persistent player progression with Postgres.
 3. Replace the 2D board with a 3D WebGL vertical slice.
-4. Add persistence with Postgres when progression exists.
+4. Add cosmetics, unlockable tools, and account profiles.
 5. Prepare a portal-friendly build for sites like CrazyGames.

@@ -30,6 +30,24 @@ const contracts = [
 
 const profileColors = ["teal", "blue", "amber", "red"];
 const profileTitles = ["New Blood", "Crypt Runner", "Ward Keeper", "Night Medic", "Relic Hunter"];
+const mapRows = [
+  "############",
+  "#S..#......#",
+  "#...#..#...#",
+  "#......#...#",
+  "###.##...###",
+  "#...C..#...#",
+  "#..##..#...#",
+  "#......K...#",
+  "############"
+];
+const vampireStarts = {
+  Strigoi: { x: 9, y: 1 },
+  Nosferatu: { x: 9, y: 7 },
+  Moroaica: { x: 6, y: 5 },
+  Vetala: { x: 8, y: 3 }
+};
+const clueSpots = [{ x: 7, y: 1 }, { x: 5, y: 5 }, { x: 8, y: 7 }];
 const rooms = new Map();
 
 app.use(express.static(PUBLIC_DIR));
@@ -66,7 +84,11 @@ function makeRoom(code = makeCode()) {
     logs: [`Lobby ${code} created.`],
     evidence: [],
     wards: [],
-    result: null
+    vampirePosition: vampireStarts[contract.vampire],
+    threat: 0,
+    result: null,
+    rewards: null,
+    tickCount: 0
   };
 }
 
@@ -84,7 +106,10 @@ function publicRoom(room) {
     signs: room.signs,
     evidence: room.evidence,
     wards: room.wards,
+    vampirePosition: room.vampirePosition,
+    threat: room.threat,
     result: room.result,
+    rewards: room.rewards,
     revealedVampire: room.evidence.length >= 3 || room.phase === "complete" ? room.vampire : "Unknown"
   };
 }
@@ -146,7 +171,11 @@ function resetMatch(room, keepPhase = "lobby") {
   room.funds = 640;
   room.evidence = [];
   room.wards = [];
+  room.vampirePosition = vampireStarts[contract.vampire];
+  room.threat = 0;
   room.result = null;
+  room.rewards = null;
+  room.tickCount = 0;
   Object.values(room.players).forEach((player) => {
     player.ready = false;
     player.position = { x: 1, y: 1 };
@@ -216,7 +245,11 @@ io.on("connection", (socket) => {
     room.moon = 45;
     room.evidence = [];
     room.wards = [];
+    room.vampirePosition = vampireStarts[room.vampire];
+    room.threat = 0;
     room.result = null;
+    room.rewards = null;
+    room.tickCount = 0;
     addLog(room, "The van doors open. The hunt begins.");
     emitRoom(room);
   });
@@ -240,6 +273,7 @@ io.on("connection", (socket) => {
     if (room.evidence.length >= 3 && inCrypt) {
       room.phase = "complete";
       room.result = "success";
+      room.rewards = calculateRewards(room, true);
       addLog(room, `${player.name} sealed the coffin. The ${room.vampire} is contained.`);
     } else {
       room.fear = Math.min(100, room.fear + 10);
@@ -253,11 +287,19 @@ io.on("connection", (socket) => {
     if (!room) return;
     if (room.phase !== "hunt") return;
 
-    if (payload.kind === "evidence" && room.signs.includes(payload.value) && !room.evidence.includes(payload.value)) {
-      room.evidence.push(String(payload.value).slice(0, 32));
-      room.funds += 90;
-      room.fear = Math.max(0, room.fear - 6);
-      addLog(room, `Evidence logged: ${payload.value}.`);
+    if (payload.kind === "evidence") {
+      const player = room.players[socket.id];
+      const foundSign = findNearbySign(room, player);
+      if (foundSign && !room.evidence.includes(foundSign)) {
+        room.evidence.push(foundSign);
+        room.funds += 90;
+        room.fear = Math.max(0, room.fear - 6);
+        room.threat = Math.min(100, room.threat + 6);
+        addLog(room, `Evidence logged: ${foundSign}.`);
+      } else {
+        room.fear = Math.min(100, room.fear + 3);
+        addLog(room, `${player?.name || "A hunter"} scans the dark but finds nothing certain.`);
+      }
     }
 
     if (payload.kind === "ward") {
@@ -267,17 +309,18 @@ io.on("connection", (socket) => {
       });
       room.funds = Math.max(0, room.funds - 50);
       room.fear = Math.max(0, room.fear - 8);
+      room.threat = Math.max(0, room.threat - 12);
       addLog(room, "A protective ward burns in the dark.");
     }
 
     if (payload.kind === "tick") {
-      room.fear = Math.min(100, room.fear + 2);
-      room.moon = Math.min(100, room.moon + 2);
+      advanceHunt(room);
     }
 
     if (room.fear >= 100 || room.moon >= 100) {
       room.phase = "complete";
       room.result = "failed";
+      room.rewards = calculateRewards(room, false);
       addLog(room, "The moon peaks. The bloodline escapes into the city.");
     }
 
@@ -322,6 +365,117 @@ function joinRoom(socket, room, payload) {
   if (isFirstPlayer) room.hostId = socket.id;
   addLog(room, `${room.players[socket.id].name} joined the lobby.`);
   emitRoom(room);
+}
+
+function advanceHunt(room) {
+  room.tickCount += 1;
+  room.fear = Math.min(100, room.fear + 2);
+  room.moon = Math.min(100, room.moon + 2);
+  room.threat = Math.min(100, room.threat + 3 + room.evidence.length);
+
+  const players = Object.values(room.players);
+  if (players.length === 0) return;
+
+  const target = nearestPlayer(room.vampirePosition, players);
+  if (!target) return;
+
+  const warded = room.wards.some((ward) => distance(ward, room.vampirePosition) <= 1);
+  if (warded) {
+    room.threat = Math.max(0, room.threat - 10);
+    if (room.tickCount % 3 === 0) addLog(room, "A ward flares and the vampire recoils.");
+  } else if (room.threat >= 18) {
+    room.vampirePosition = nextStepToward(room.vampirePosition, target.position);
+  }
+
+  const proximity = distance(room.vampirePosition, target.position);
+  if (proximity === 0) {
+    room.fear = Math.min(100, room.fear + 20);
+    room.threat = Math.max(0, room.threat - 15);
+    addLog(room, `${target.name} is caught in the vampire's shadow.`);
+  } else if (proximity === 1 && room.tickCount % 2 === 0) {
+    room.fear = Math.min(100, room.fear + 10);
+    addLog(room, `${target.name} hears movement right behind them.`);
+  }
+
+  if (room.threat >= 70 && room.tickCount % 4 === 0) {
+    triggerHuntEvent(room, target);
+  }
+}
+
+function findNearbySign(room, player) {
+  if (!player?.position) return null;
+  const radius = player.loadout === "occultist" ? 2 : 1;
+  const clues = clueSpots.map((spot, index) => ({ ...spot, sign: room.signs[index] }));
+  const clue = clues.find((item) => !room.evidence.includes(item.sign) && distance(item, player.position) <= radius);
+  return clue?.sign || null;
+}
+
+function nearestPlayer(from, players) {
+  return players
+    .filter((player) => player.position)
+    .sort((a, b) => distance(from, a.position) - distance(from, b.position))[0];
+}
+
+function distance(a, b) {
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
+
+function nextStepToward(from, to) {
+  const options = [
+    { x: from.x + 1, y: from.y },
+    { x: from.x - 1, y: from.y },
+    { x: from.x, y: from.y + 1 },
+    { x: from.x, y: from.y - 1 }
+  ].filter((position) => isWalkable(position));
+
+  return options.sort((a, b) => distance(a, to) - distance(b, to))[0] || from;
+}
+
+function isWalkable(position) {
+  return mapRows[position.y]?.[position.x] && mapRows[position.y][position.x] !== "#";
+}
+
+function triggerHuntEvent(room, target) {
+  const events = [
+    {
+      log: `The ${room.vampire} cuts the lights around ${target.name}.`,
+      fear: 9,
+      moon: 1,
+      threat: -18
+    },
+    {
+      log: "A blood trail appears across the floorboards.",
+      fear: 6,
+      moon: 3,
+      threat: -12
+    },
+    {
+      log: `${target.name}'s radio repeats their own voice back at them.`,
+      fear: 12,
+      moon: 0,
+      threat: -20
+    }
+  ];
+  const event = events[Math.floor(Math.random() * events.length)];
+  room.fear = Math.min(100, room.fear + event.fear);
+  room.moon = Math.min(100, room.moon + event.moon);
+  room.threat = Math.max(0, room.threat + event.threat);
+  addLog(room, event.log);
+}
+
+function calculateRewards(room, success) {
+  const evidencePay = room.evidence.length * 120;
+  const survivalBonus = success ? Math.max(0, 250 - room.fear) : 0;
+  const speedBonus = success ? Math.max(0, 200 - room.moon) : 0;
+  const total = room.funds + evidencePay + survivalBonus + speedBonus;
+  return {
+    success,
+    evidencePay,
+    survivalBonus,
+    speedBonus,
+    total,
+    rank: total >= 1000 ? "S" : total >= 800 ? "A" : total >= 600 ? "B" : "C"
+  };
 }
 
 function leaveCurrentRoom(socket) {

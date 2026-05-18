@@ -14,6 +14,7 @@
       --amber: #e1a957;
       --mint: #55c7a6;
       --blue: #6ca7d8;
+      --violet: #a879d8;
       --tile: 44px;
     }
 
@@ -194,7 +195,7 @@
     .briefing p { margin: 0; color: var(--muted); line-height: 1.45; font-size: 14px; }
     .action-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
 
-    .meter-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 14px; }
+    .meter-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 14px; }
     .meter { padding: 12px; }
     .meter span { display: block; color: var(--muted); font-size: 11px; font-weight: 900; text-transform: uppercase; margin-bottom: 8px; }
     .meter strong { font-size: 22px; line-height: 1; }
@@ -245,6 +246,7 @@
     }
     .hunter { background: linear-gradient(145deg, #55c7a6, #346f73); color: #06100e; }
     .ally { background: linear-gradient(145deg, #6ca7d8, #324e82); }
+    .vampire { background: linear-gradient(145deg, #b73535, #42141c); color: #fff; box-shadow: 0 0 18px rgba(183,53,53,.65); }
 
     .controls { margin-top: 14px; display: grid; grid-template-columns: repeat(3, 46px) 96px 96px; justify-content: center; gap: 8px; }
     .controls button { height: 46px; }
@@ -256,6 +258,9 @@
     .side-section { border-top: 1px solid var(--line); padding: 14px; display: grid; gap: 10px; }
     .log-list { max-height: 260px; overflow: auto; display: grid; gap: 10px; }
     .log { padding: 9px 10px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+    .reward-card { display: none; padding: 12px; border: 1px solid rgba(225,169,87,.34); background: rgba(225,169,87,.1); border-radius: 8px; }
+    .reward-card.open { display: grid; gap: 6px; }
+    .reward-card p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
 
     @media (max-width: 1320px) {
       main { grid-template-columns: 280px 1fr; }
@@ -345,6 +350,7 @@
             <div class="meter-grid">
               <div class="meter"><span>Fear</span><strong id="fearValue">18%</strong><div class="bar"><i id="fearBar"></i></div></div>
               <div class="meter"><span>Moon</span><strong id="moonValue">45%</strong><div class="bar"><i id="moonBar"></i></div></div>
+              <div class="meter"><span>Threat</span><strong id="threatValue">0%</strong><div class="bar"><i id="threatBar"></i></div></div>
               <div class="meter"><span>Funds</span><strong id="fundsValue">$640</strong><div class="bar"><i id="fundsBar"></i></div></div>
             </div>
           </div>
@@ -369,6 +375,10 @@
           <span class="pill" id="vampireType">Unknown</span>
         </div>
         <div class="panel-body">
+          <div class="side-section">
+            <h2>Contract Result</h2>
+            <div class="reward-card" id="rewardCard"></div>
+          </div>
           <div class="stack" id="evidence"></div>
           <div class="side-section">
             <h2>Kit</h2>
@@ -509,7 +519,7 @@
     });
 
     function renderAll() {
-      const room = roomState || { code: "No room", contract: "Ashbury Manor", phase: "lobby", fear: 18, moon: 45, funds: 640, players: [], signs: defaultSigns, evidence: [], wards: [], logs: ["Host or join a lobby to begin."], revealedVampire: "Unknown" };
+      const room = roomState || { code: "No room", contract: "Ashbury Manor", phase: "lobby", fear: 18, moon: 45, threat: 0, funds: 640, players: [], signs: defaultSigns, evidence: [], wards: [], logs: ["Host or join a lobby to begin."], revealedVampire: "Unknown" };
       $("lobbyCode").textContent = `LOBBY: ${room.code}`;
       $("contractTitle").textContent = `Contract: ${room.contract} / ${room.phase}`;
       $("vampireType").textContent = room.revealedVampire;
@@ -523,6 +533,7 @@
       renderMeters(room);
       renderMap(room);
       renderLog(room);
+      renderRewards(room);
     }
 
     function renderPlayers(room) {
@@ -574,11 +585,14 @@
     function renderMeters(room) {
       $("fearValue").textContent = `${room.fear}%`;
       $("moonValue").textContent = `${room.moon}%`;
+      $("threatValue").textContent = `${room.threat || 0}%`;
       $("fundsValue").textContent = `$${room.funds}`;
       $("fearBar").style.width = `${room.fear}%`;
       $("fearBar").style.background = room.fear > 70 ? "var(--blood)" : "var(--amber)";
       $("moonBar").style.width = `${room.moon}%`;
       $("moonBar").style.background = "var(--blue)";
+      $("threatBar").style.width = `${room.threat || 0}%`;
+      $("threatBar").style.background = "var(--violet)";
       $("fundsBar").style.width = `${Math.min(100, room.funds / 10)}%`;
       $("fundsBar").style.background = "var(--mint)";
     }
@@ -606,6 +620,9 @@
           if (room.wards.some((ward) => ward.x === x && ward.y === y)) {
             html += `<div class="piece" style="inset:13px;background:rgba(225,169,87,.86);color:#19120a">W</div>`;
           }
+          if (room.phase === "hunt" && room.vampirePosition?.x === x && room.vampirePosition?.y === y) {
+            html += `<div class="piece vampire">V</div>`;
+          }
           html += "</div>";
         }
       }
@@ -614,6 +631,23 @@
 
     function renderLog(room) {
       $("log").innerHTML = room.logs.slice().reverse().map((line) => `<div class="log">${escapeHtml(line)}</div>`).join("");
+    }
+
+    function renderRewards(room) {
+      const card = $("rewardCard");
+      if (!room.rewards) {
+        card.className = "reward-card";
+        card.innerHTML = `<p>Complete a contract to see payout, grade, and bonuses.</p>`;
+        return;
+      }
+
+      const rewards = room.rewards;
+      card.className = "reward-card open";
+      card.innerHTML = `
+        <strong>${rewards.success ? "Contract Complete" : "Contract Failed"} / Rank ${escapeHtml(rewards.rank)}</strong>
+        <p>Evidence: $${rewards.evidencePay} / Survival: $${rewards.survivalBonus} / Speed: $${rewards.speedBonus}</p>
+        <p>Total payout: $${rewards.total}</p>
+      `;
     }
 
     function move(dx, dy) {
@@ -629,9 +663,7 @@
     function scan() {
       if (!roomState) return;
       if (roomState.phase !== "hunt") return showNotice("Start the hunt before scanning.");
-      const clues = getClues(roomState);
-      const clue = clues.find((item) => !roomState.evidence.includes(item.sign) && Math.abs(item.x - local.position.x) <= 1 && Math.abs(item.y - local.position.y) <= 1);
-      socket.emit("match:event", clue ? { kind: "evidence", value: clue.sign } : { kind: "tick" });
+      socket.emit("match:event", { kind: "evidence" });
     }
 
     function ward() {
