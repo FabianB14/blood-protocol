@@ -488,8 +488,8 @@
         <kbd>F</kbd> banish
         <kbd>B</kbd> light
         <kbd>V</kbd> investigate
+        <kbd>G</kbd> ping
         <kbd>J</kbd> journal
-        <kbd>TAB</kbd> menu
       </div>
       <button class="ghost" id="menuBtn">Menu</button>
     </div>
@@ -503,6 +503,7 @@
         <button class="touch-btn" id="touchSprint" aria-label="Sprint">RUN</button>
         <button class="touch-btn" id="touchInvestigate" aria-label="Investigate">EYE</button>
         <button class="touch-btn" id="touchLight" aria-label="Toggle flashlight">LIGHT</button>
+        <button class="touch-btn" id="touchPing" aria-label="Ping">PING</button>
         <button class="touch-btn" id="touchScan" aria-label="Scan">E</button>
         <button class="touch-btn" id="touchWard" aria-label="Ward">Q</button>
         <button class="touch-btn" id="touchSeal" aria-label="Banish">F</button>
@@ -1004,6 +1005,74 @@
       });
     }
 
+    // ---------- Ping markers ----------
+    const pingMarkers = []; // { mesh, until }
+    const PING_LIFETIME_MS = 8000;
+    const pingRaycaster = new THREE.Raycaster();
+    const pingScreenCenter = new THREE.Vector2(0, 0);
+
+    function sendPing() {
+      if (!roomState || roomState.phase !== 'hunt') return;
+      // Cast a ray from the camera centre. If it hits a wall/floor, use the
+      // hit point; otherwise project forward 8m on the floor plane.
+      pingRaycaster.setFromCamera(pingScreenCenter, camera);
+      const hits = pingRaycaster.intersectObjects(worldGroup.children, true);
+      let point = null;
+      for (const h of hits) {
+        if (h.point) { point = h.point; break; }
+      }
+      if (!point) {
+        // Fallback: project the forward vector onto y=0.
+        const fwd = new THREE.Vector3();
+        camera.getWorldDirection(fwd);
+        const cur = controls.getObject().position;
+        const t = fwd.y !== 0 ? -cur.y / fwd.y : 8;
+        const reach = Math.max(2, Math.min(20, t || 8));
+        point = new THREE.Vector3(cur.x + fwd.x * reach, 0, cur.z + fwd.z * reach);
+      }
+      socket.emit('match:ping', { x: point.x, z: point.z });
+    }
+
+    function placePing(p) {
+      const colorHexNum = colorHex[p.color] || 0xe1a957;
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.5, 0.85, 24),
+        new THREE.MeshBasicMaterial({ color: colorHexNum, transparent: true, opacity: 0.95, side: THREE.DoubleSide })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(p.x, 0.05, p.z);
+      const beam = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.08, 0.08, 3.0, 8),
+        new THREE.MeshBasicMaterial({ color: colorHexNum, transparent: true, opacity: 0.6 })
+      );
+      beam.position.set(p.x, 1.5, p.z);
+      const light = new THREE.PointLight(colorHexNum, 1.4, 5);
+      light.position.set(p.x, 1.6, p.z);
+      const group = new THREE.Group();
+      group.add(ring); group.add(beam); group.add(light);
+      worldGroup.add(group);
+      pingMarkers.push({ group, until: performance.now() + PING_LIFETIME_MS, color: colorHexNum, ring, beam, light });
+    }
+
+    function tickPings(now) {
+      for (let i = pingMarkers.length - 1; i >= 0; i -= 1) {
+        const m = pingMarkers[i];
+        const remaining = m.until - now;
+        if (remaining <= 0) {
+          worldGroup.remove(m.group);
+          pingMarkers.splice(i, 1);
+          continue;
+        }
+        const alpha = Math.min(1, remaining / 2000); // fade in last 2s
+        m.ring.material.opacity = 0.95 * alpha;
+        m.beam.material.opacity = 0.6 * alpha;
+        m.light.intensity = 1.4 * alpha;
+        // Pulse the ring scale
+        const s = 1.0 + Math.sin(now * 0.004) * 0.15;
+        m.ring.scale.set(s, s, s);
+      }
+    }
+
     let relicMesh = null;
     function syncRelic(room) {
       const relic = room.relic;
@@ -1242,6 +1311,7 @@
       if (e.code === 'KeyJ') openMenu('journal');
       if (e.code === 'KeyB') toggleFlashlight();
       if (e.code === 'KeyV') setInvestigate(true);
+      if (e.code === 'KeyG') sendPing();
       if (e.code.startsWith('Digit')) {
         const n = parseInt(e.code.slice(5), 10);
         if (n >= 1 && n <= (local.gear?.length || 0)) {
@@ -1370,6 +1440,7 @@
       wireTap('touchWard', () => socket.emit('match:ward'));
       wireTap('touchSeal', () => socket.emit('match:seal'));
       wireTap('touchLight', toggleFlashlight);
+      wireTap('touchPing', sendPing);
       // Investigate is a hold-to-toggle on touch
       const invBtn = $('touchInvestigate');
       invBtn.addEventListener('touchstart', (e) => { e.preventDefault(); setInvestigate(true); }, { passive: false });
@@ -1513,6 +1584,7 @@
         if (m.material) m.material.emissiveIntensity = inRange ? 3.2 : 1.4;
       });
 
+      tickPings(performance.now());
       renderer.render(scene, camera);
     }
 
@@ -1607,6 +1679,12 @@
 
     socket.on('match:banish-prompt', ({ suspects }) => {
       openBanishModal(suspects);
+    });
+
+    socket.on('room:ping', (p) => {
+      placePing(p);
+      // Brief HUD notice for the receiving end so the marker isn't missed
+      if (p.from !== socket.id) showNotice(`${p.name} pinged a location.`);
     });
     socket.on('leaderboard:update', () => {
       if (currentTab === 'leaderboard') loadLeaderboard();

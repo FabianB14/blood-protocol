@@ -1060,6 +1060,24 @@ io.on("connection", (socket) => {
     finishMatch(room, true, `${player.name} banished the ${pick.name} with the ${ritual.name} rite.`);
   });
 
+  socket.on("match:ping", (payload = {}) => {
+    const room = getRoom(socket.data.roomCode);
+    if (!room || room.phase !== "hunt") return;
+    const player = room.players[socket.id];
+    if (!player || !player.alive) return;
+    const x = Number(payload.x);
+    const z = Number(payload.z);
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+    // Server forwards pings to the room. No persistence — clients auto-fade.
+    io.to(room.code).emit("room:ping", {
+      x, z,
+      from: player.id,
+      name: player.name,
+      color: player.profile?.color || "teal",
+      at: Date.now()
+    });
+  });
+
   socket.on("match:chat", (payload = {}) => {
     const room = getRoom(socket.data.roomCode);
     if (!room) return;
