@@ -1813,7 +1813,12 @@
       const confirmed = new Set(roomState?.evidence || []);
       const required = roomState?.evidenceRequired || 3;
       const revealed = roomState?.vampireId; // server only sends after match end / full evidence
-      const possibleVampires = availableVampires.filter((v) => [...confirmed].every((c) => v.evidence.includes(c)));
+      const allowAlt = !!roomState?.allowAltEvidence;
+      const matches = (v) => {
+        const pool = allowAlt && v.altEvidence ? [...v.evidence, v.altEvidence] : v.evidence;
+        return [...confirmed].every((c) => pool.includes(c));
+      };
+      const possibleVampires = availableVampires.filter(matches);
 
       $('journalSummary').innerHTML = `
         <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center; padding:10px 12px; background:rgba(255,255,255,.04); border-radius:8px; border:1px solid var(--line);">
@@ -1823,7 +1828,7 @@
         </div>`;
 
       $('journalGrid').innerHTML = availableVampires.map((v) => {
-        const matchesAllConfirmed = [...confirmed].every((c) => v.evidence.includes(c));
+        const matchesAllConfirmed = matches(v);
         const isRevealed = revealed === v.id;
         const dimmed = !matchesAllConfirmed;
         const r = rituals[v.id];
@@ -1836,13 +1841,18 @@
             <small style="display:block; color:var(--muted);">${r.requirements.map(escapeHtml).join(' / ')}</small>
             <small style="display:block; color:var(--mint);">${escapeHtml(r.hint)}</small>
           </div>` : '';
+        const altTag = (allowAlt && v.altEvidence) ? (() => {
+          const name = evidenceById[v.altEvidence]?.name || v.altEvidence;
+          const got = confirmed.has(v.altEvidence);
+          return ` <small style="color:var(--violet)">+ Nightmare tell: <span style="${got ? 'color:var(--mint); font-weight:900;' : 'color:var(--violet);'}">${escapeHtml(name)}</span></small>`;
+        })() : '';
         return `<div class="loadout-card ${isRevealed ? 'selected' : ''}" style="opacity:${dimmed ? .35 : 1}">
           <strong>${escapeHtml(v.name)}${isRevealed ? ' <small style="color:var(--amber)">/ this match’s species</small>' : ''}</strong>
           <small>Evidence: ${v.evidence.map((id) => {
             const name = evidenceById[id]?.name || id;
             const got = confirmed.has(id);
             return `<span style="${got ? 'color:var(--mint); font-weight:900;' : 'color:var(--muted);'}">${escapeHtml(name)}</span>`;
-          }).join(' / ')}</small>
+          }).join(' / ')}${altTag}</small>
           ${ritualBlock}
         </div>`;
       }).join('');
@@ -1907,10 +1917,14 @@
       const currentId = roomState?.difficultyId || local.difficultyId || 'standard';
       $('difficultyGrid').innerHTML = availableDifficulties.map((d) => {
         const sel = currentId === d.id;
+        const nightmareNote = d.id === 'nightmare'
+          ? `<small style="color:var(--violet); font-weight:900;">Alt evidence enabled — clues may match the species' 4th tell, leaving multiple suspects.</small>`
+          : '';
         return `<div class="diff-card ${sel ? 'selected' : ''}" data-did="${d.id}">
           <strong>${escapeHtml(d.name)}</strong>
           <small>Need ${d.evidenceRequired} sign${d.evidenceRequired === 1 ? '' : 's'} / ${d.gearSlots} gear slots / ${Math.round(d.rewardMult * 100)}% payout</small>
           <small>Funds $${d.funds} / Moon x${d.moonRate.toFixed(1)} / Hunt at ${d.vampireThreshold}% threat</small>
+          ${nightmareNote}
         </div>`;
       }).join('');
       document.querySelectorAll('[data-did]').forEach((el) => {

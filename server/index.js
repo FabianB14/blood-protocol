@@ -53,19 +53,30 @@ const gearCatalog = {
   ultrasonic_mic:     { id: "ultrasonic_mic",     name: "Ultrasonic Microphone", detects: "sonic",        tag: "Records inhuman frequencies" }
 };
 
-// The 10 vampire species. Each has a unique 3-evidence signature.
+// The 10 vampire species. Each has a unique 3-evidence canonical signature
+// plus an optional 4th "tell" used only on Nightmare difficulty (3-of-4
+// random signs are placed, which can leave confirmed evidence consistent
+// with several species — players have to guess at banish time).
 const vampireCatalog = [
-  { id: "nosferatu",       name: "Nosferatu",            evidence: ["physical", "emf", "pheromones"],     banishment: "Mirror shards and blessed salt, performed in total darkness." },
-  { id: "noble",           name: "Vampiric Noble",       evidence: ["spectral", "physical", "aura"],       banishment: "Personal belonging ritual at midnight, under moonlight." },
-  { id: "shade_stalker",   name: "Shade Stalker",        evidence: ["thermal", "spectral", "blood_traces"], banishment: "Burn special incense, flood with bright light." },
-  { id: "blood_alchemist", name: "Blood Alchemist",      evidence: ["blood_traces", "physical", "pheromones"], banishment: "Holy water + its own blood; destroy its alchemical focus." },
-  { id: "mist_walker",     name: "Mist Walker",          evidence: ["ectoplasm", "emf", "thermal"],        banishment: "Trap the mist in a prepared vessel; zero air currents." },
-  { id: "chronovampire",   name: "Chronovampire",        evidence: ["temporal", "physical", "spectral"],   banishment: "Synced cross-time actions using a mortal-past artifact." },
-  { id: "psychic_leech",   name: "Psychic Leech",        evidence: ["aura", "spectral", "sonic"],          banishment: "Combined mental focus of the full team; break illusions." },
-  { id: "feral",           name: "Feral Bloodline",      evidence: ["physical", "pheromones", "thermal"],  banishment: "Silver caging circle; calm the feral nature." },
-  { id: "tech_hybrid",     name: "Technological Hybrid", evidence: ["emf", "physical", "sonic"],           banishment: "Isolate from all tech; trigger an EMP at the climax." },
-  { id: "dreamweaver",     name: "Dreamweaver",          evidence: ["spectral", "aura", "sonic"],          banishment: "Lucid dream together; confront the vampire on its ground." }
+  { id: "nosferatu",       name: "Nosferatu",            evidence: ["physical", "emf", "pheromones"],         altEvidence: "thermal",     banishment: "Mirror shards and blessed salt, performed in total darkness." },
+  { id: "noble",           name: "Vampiric Noble",       evidence: ["spectral", "physical", "aura"],           altEvidence: "pheromones",  banishment: "Personal belonging ritual at midnight, under moonlight." },
+  { id: "shade_stalker",   name: "Shade Stalker",        evidence: ["thermal", "spectral", "blood_traces"],    altEvidence: "aura",        banishment: "Burn special incense, flood with bright light." },
+  { id: "blood_alchemist", name: "Blood Alchemist",      evidence: ["blood_traces", "physical", "pheromones"], altEvidence: "ectoplasm",   banishment: "Holy water + its own blood; destroy its alchemical focus." },
+  { id: "mist_walker",     name: "Mist Walker",          evidence: ["ectoplasm", "emf", "thermal"],            altEvidence: "aura",        banishment: "Trap the mist in a prepared vessel; zero air currents." },
+  { id: "chronovampire",   name: "Chronovampire",        evidence: ["temporal", "physical", "spectral"],       altEvidence: "emf",         banishment: "Synced cross-time actions using a mortal-past artifact." },
+  { id: "psychic_leech",   name: "Psychic Leech",        evidence: ["aura", "spectral", "sonic"],              altEvidence: "temporal",    banishment: "Combined mental focus of the full team; break illusions." },
+  { id: "feral",           name: "Feral Bloodline",      evidence: ["physical", "pheromones", "thermal"],      altEvidence: "blood_traces",banishment: "Silver caging circle; calm the feral nature." },
+  { id: "tech_hybrid",     name: "Technological Hybrid", evidence: ["emf", "physical", "sonic"],               altEvidence: "temporal",    banishment: "Isolate from all tech; trigger an EMP at the climax." },
+  { id: "dreamweaver",     name: "Dreamweaver",          evidence: ["spectral", "aura", "sonic"],              altEvidence: "ectoplasm",   banishment: "Lucid dream together; confront the vampire on its ground." }
 ];
+
+function vampireFullPool(v) {
+  return v.altEvidence ? [...v.evidence, v.altEvidence] : v.evidence.slice();
+}
+function vampireMatches(v, confirmedSigns, allowAlt) {
+  const pool = allowAlt ? vampireFullPool(v) : v.evidence;
+  return confirmedSigns.every((c) => pool.includes(c));
+}
 
 const vampireById = (id) => vampireCatalog.find((v) => v.id === id);
 
@@ -369,10 +380,11 @@ app.get("/api/evidence-types", (_req, res) => {
 });
 
 app.get("/api/vampires", (_req, res) => {
-  // Public catalog: include the evidence signatures so the client journal can
-  // narrow down suspects as players confirm clues. Banishment text stays
-  // hidden until the species is revealed at match end.
-  res.json(vampireCatalog.map((v) => ({ id: v.id, name: v.name, evidence: v.evidence })));
+  // Public catalog: include the canonical signatures plus the altEvidence
+  // "Nightmare-only tell" so the journal can show all four possibilities
+  // and narrow suspects correctly when the host has picked Nightmare.
+  // Banishment text stays hidden until species is revealed at match end.
+  res.json(vampireCatalog.map((v) => ({ id: v.id, name: v.name, evidence: v.evidence, altEvidence: v.altEvidence || null })));
 });
 
 app.get("/api/rituals", (_req, res) => {
@@ -554,6 +566,7 @@ function publicRoom(room) {
     difficulty: room.difficulty,
     evidenceRequired: room.evidenceRequired,
     gearSlots: room.gearSlots,
+    allowAltEvidence: !!room.allowAltEvidence,
     phase: room.phase,
     fear: room.fear,
     moon: room.moon,
@@ -729,13 +742,19 @@ function startHunt(room) {
   room.tickCount = 0;
 
   // Pick this match's vampire and seed the map's clue spots with its evidence.
-  // Shuffle so the player can't memorize "spot 0 = first listed evidence."
+  // Nightmare difficulty draws 3-of-4 (canonical + alt) so confirmed evidence
+  // can ambiguously match several species; other difficulties shuffle the
+  // canonical 3 directly.
   const vampire = pickVampireForMatch();
   room.vampireId = vampire.id;
   room.vampire = vampire.name;
-  const shuffled = vampire.evidence.slice().sort(() => Math.random() - 0.5);
-  // Trim to the number of clue spots on the map (always 3 in current maps)
+  const isNightmare = room.difficultyId === "nightmare";
+  const pool = (isNightmare && vampire.altEvidence)
+    ? [...vampire.evidence, vampire.altEvidence]
+    : vampire.evidence.slice();
+  const shuffled = pool.sort(() => Math.random() - 0.5);
   room.signs = shuffled.slice(0, room.clueSpots.length);
+  room.allowAltEvidence = isNightmare;
 
   // Pin difficulty defaults applied to current difficulty
   applyDifficulty(room, room.difficultyId || DEFAULT_DIFFICULTY);
@@ -983,7 +1002,7 @@ io.on("connection", (socket) => {
     }
     const confirmed = room.evidence;
     const suspects = vampireCatalog
-      .filter((v) => confirmed.every((c) => v.evidence.includes(c)))
+      .filter((v) => vampireMatches(v, confirmed, room.allowAltEvidence))
       .map((v) => ({ id: v.id, name: v.name }));
     socket.emit("match:banish-prompt", { suspects });
   });
@@ -1012,8 +1031,10 @@ io.on("connection", (socket) => {
       return;
     }
     // Validate the pick is consistent with the confirmed evidence — keeps the
-    // client honest if a tampered request comes in.
-    if (!room.evidence.every((c) => pick.evidence.includes(c))) {
+    // client honest if a tampered request comes in. Nightmare lets confirmed
+    // signs come from the 4-evidence pool, so we use the allowAlt-aware
+    // matcher here.
+    if (!vampireMatches(pick, room.evidence, room.allowAltEvidence)) {
       socket.emit("notice", { type: "error", message: "Your evidence does not match that species." });
       return;
     }
