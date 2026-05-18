@@ -810,8 +810,136 @@
       playerMeshes.clear();
       wardMeshes.length = 0;
       clueMeshes.length = 0;
+      pingMarkers.forEach((p) => worldGroup.remove(p.group));
+      pingMarkers.length = 0;
       vampireMesh = null;
       cryptMesh = null;
+      relicMesh = null;
+    }
+
+    // ---------- Hunters' Tent (lobby staging area) ----------
+    // Cinematic outdoor camp the players see while the host/join + ready
+    // phase is in progress. Purely visual: no movement, no networking.
+    let stagingActive = false;
+    const stagingCamAnchor = { x: 0, y: PLAYER_HEIGHT, z: 0 };
+
+    function buildStagingArea() {
+      clearWorld();
+      stagingActive = true;
+      scene.background = new THREE.Color(0x05080d);
+      scene.fog = new THREE.Fog(0x05080d, 14, 60);
+
+      // Ground
+      const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(80, 80),
+        new THREE.MeshStandardMaterial({ color: 0x1a2218, roughness: 1.0 })
+      );
+      ground.rotation.x = -Math.PI / 2;
+      worldGroup.add(ground);
+
+      // Moon
+      const moon = new THREE.Mesh(
+        new THREE.SphereGeometry(3.0, 24, 18),
+        new THREE.MeshBasicMaterial({ color: 0xfaf3d2 })
+      );
+      moon.position.set(-22, 28, -45);
+      worldGroup.add(moon);
+      const moonLight = new THREE.DirectionalLight(0x9aa9c8, 0.35);
+      moonLight.position.set(-22, 28, -45);
+      worldGroup.add(moonLight);
+
+      // Tree silhouettes around the perimeter
+      for (let i = 0; i < 28; i += 1) {
+        const a = (i / 28) * Math.PI * 2 + Math.random() * 0.2;
+        const r = 22 + Math.random() * 14;
+        const h = 4 + Math.random() * 4;
+        const tree = new THREE.Mesh(
+          new THREE.ConeGeometry(1.4, h, 6),
+          new THREE.MeshStandardMaterial({ color: 0x0c1411, roughness: 1.0 })
+        );
+        tree.position.set(Math.cos(a) * r, h / 2, Math.sin(a) * r);
+        worldGroup.add(tree);
+      }
+
+      // Tent (two crossed canvas planes + a pole)
+      const tentMat = new THREE.MeshStandardMaterial({ color: 0x4a3a26, roughness: 0.9, side: THREE.DoubleSide });
+      const tentA = new THREE.Mesh(new THREE.ConeGeometry(2.4, 3.0, 4, 1, true), tentMat);
+      tentA.rotation.y = Math.PI / 4;
+      tentA.position.set(0, 1.5, -3);
+      worldGroup.add(tentA);
+      const pole = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.06, 0.06, 3.4, 8),
+        new THREE.MeshStandardMaterial({ color: 0x2a1f10 })
+      );
+      pole.position.set(0, 1.7, -3);
+      worldGroup.add(pole);
+
+      // Gear table (a crate-top "ready bench")
+      const table = new THREE.Mesh(
+        new THREE.BoxGeometry(2.4, 0.7, 1.0),
+        new THREE.MeshStandardMaterial({ color: 0x3c2a18, roughness: 0.85 })
+      );
+      table.position.set(0, 0.35, -0.5);
+      worldGroup.add(table);
+      // Crates on top
+      for (let i = -1; i <= 1; i += 1) {
+        const crate = new THREE.Mesh(
+          new THREE.BoxGeometry(0.5, 0.5, 0.5),
+          new THREE.MeshStandardMaterial({ color: 0x2f2110, roughness: 0.9 })
+        );
+        crate.position.set(i * 0.7, 0.95, -0.5);
+        worldGroup.add(crate);
+      }
+
+      // Lanterns — warm point lights around the camp
+      const lanternPositions = [[-2.5, 1.6, 0], [2.5, 1.6, 0], [0, 1.6, -1.8], [-3.6, 1.6, -3], [3.6, 1.6, -3]];
+      for (const [x, y, z] of lanternPositions) {
+        const post = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.04, 0.04, 1.6, 8),
+          new THREE.MeshStandardMaterial({ color: 0x261910 })
+        );
+        post.position.set(x, 0.8, z);
+        worldGroup.add(post);
+        const bulb = new THREE.Mesh(
+          new THREE.SphereGeometry(0.14, 12, 10),
+          new THREE.MeshStandardMaterial({ color: 0xffd58a, emissive: 0xffaa42, emissiveIntensity: 1.8 })
+        );
+        bulb.position.set(x, y, z);
+        worldGroup.add(bulb);
+        const light = new THREE.PointLight(0xffaa55, 1.1, 7);
+        light.position.set(x, y, z);
+        worldGroup.add(light);
+      }
+
+      // Stars — faint specks across a sky dome
+      const starGeo = new THREE.BufferGeometry();
+      const starCount = 220;
+      const starPositions = new Float32Array(starCount * 3);
+      for (let i = 0; i < starCount; i += 1) {
+        const phi = Math.random() * Math.PI * 2;
+        const theta = Math.random() * Math.PI * 0.4 + 0.05;
+        const r = 70;
+        starPositions[i * 3 + 0] = Math.cos(phi) * Math.sin(theta) * r;
+        starPositions[i * 3 + 1] = Math.cos(theta) * r;
+        starPositions[i * 3 + 2] = Math.sin(phi) * Math.sin(theta) * r;
+      }
+      starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+      const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xeef2ff, size: 0.45, sizeAttenuation: true }));
+      worldGroup.add(stars);
+
+      // Camera anchor — fixed 'cinematic' shot of the camp
+      stagingCamAnchor.x = 0;
+      stagingCamAnchor.y = PLAYER_HEIGHT + 0.4;
+      stagingCamAnchor.z = 5.5;
+      controls.getObject().position.set(stagingCamAnchor.x, stagingCamAnchor.y, stagingCamAnchor.z);
+      camera.lookAt(0, 1.4, -3);
+    }
+
+    function leaveStagingArea() {
+      stagingActive = false;
+      // Restore the indoor fog/background; buildMap doesn't currently set these
+      scene.background = new THREE.Color(0x05060a);
+      scene.fog = new THREE.Fog(0x05060a, 6, 28);
     }
 
     // ---------- Build map ----------
@@ -1619,8 +1747,18 @@
       const prevContract = roomState?.contractId;
       const prevPhase = roomState?.phase;
       roomState = room;
-      if (room.contractId !== prevContract) {
-        buildMap(room);
+
+      // Lobby vs hunt scene swap. In lobby we render the outdoor staging
+      // camp; in hunt we render the contract map. Contract changes during
+      // hunt rebuild the map. We also rebuild the contract map when leaving
+      // staging so a freshly-started hunt has the right geometry.
+      if (room.phase === 'lobby') {
+        if (!stagingActive) buildStagingArea();
+      } else {
+        if (stagingActive || room.contractId !== prevContract) {
+          if (stagingActive) leaveStagingArea();
+          buildMap(room);
+        }
       }
       if (room.phase === 'hunt' && !vampireMesh) {
         buildVampire(room);
@@ -1713,9 +1851,9 @@
       roomState = null;
       local.room = null;
       local.ready = false;
-      // tear down the world; the player is no longer in a contract
-      clearWorld();
-      if (vampireMesh) { worldGroup.remove(vampireMesh); vampireMesh = null; }
+      // Tear down the contract world and drop back to the outdoor staging
+      // camp so the player isn't staring into the void while picking a lobby.
+      buildStagingArea();
       $('roomCode').value = '';
       $('contractName').textContent = '—';
       $('contractMeta').textContent = 'Lobby';
@@ -2331,6 +2469,9 @@
         worldGroup.add(rebuilt);
       }
     });
+    // Show the outdoor hunters' camp behind the boot lobby modal so the
+    // player has something to look at while picking host/join/loadout.
+    buildStagingArea();
     const params = new URLSearchParams(location.search);
     const roomFromUrl = params.get('room');
     if (roomFromUrl) $('roomCode').value = roomFromUrl.toUpperCase();
