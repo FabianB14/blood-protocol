@@ -620,6 +620,12 @@ function emitRoom(room) {
   io.to(room.code).emit("room:state", publicRoom(room));
 }
 
+// Broadcast a generic VFX placeholder. Clients map `kind` to an effect prefab
+// and play it at (x, z). Keep payloads small — these fire frequently.
+function emitEffect(room, kind, x, z, extra = {}) {
+  io.to(room.code).emit("match:effect", { kind, x, z, ...extra });
+}
+
 function emitTick(room) {
   io.to(room.code).emit("room:tick", {
     vampirePosition: room.vampirePosition,
@@ -875,6 +881,7 @@ io.on("connection", (socket) => {
         room.relic.claimed = true;
         player.hasRelic = true;
         addLog(room, `${player.name} pocketed the relic from the vault.`);
+        emitEffect(room, "relic_pickup", room.relic.world.x, room.relic.world.z);
         emitRoom(room);
       }
     }
@@ -960,6 +967,7 @@ io.on("connection", (socket) => {
     room.threat = Math.min(100, room.threat + 6);
     const signName = evidenceTypes[nearby.sign]?.name || nearby.sign;
     addLog(room, `Evidence logged: ${signName} (via ${equipped.name}).`);
+    emitEffect(room, "evidence_logged", nearby.world.x, nearby.world.z);
     emitRoom(room);
   });
 
@@ -974,11 +982,13 @@ io.on("connection", (socket) => {
       socket.emit("notice", { type: "error", message: "Not enough funds for a ward." });
       return;
     }
-    room.wards.push({ x: tile.x, y: tile.y, world: tileToWorld(tile) });
+    const wardWorld = tileToWorld(tile);
+    room.wards.push({ x: tile.x, y: tile.y, world: wardWorld });
     room.funds = Math.max(0, room.funds - cost);
     room.fear = Math.max(0, room.fear - 8);
     room.threat = Math.max(0, room.threat - 12);
     addLog(room, `${player.name} burns a ward at [${tile.x}, ${tile.y}].`);
+    emitEffect(room, "ward_ignite", wardWorld.x, wardWorld.z);
     emitRoom(room);
   });
 
@@ -1039,9 +1049,11 @@ io.on("connection", (socket) => {
       return;
     }
 
+    const cryptWorld = tileToWorld(room.cryptPosition);
     if (pick.id !== room.vampireId) {
       // Wrong species — banishment fails the whole contract, Phasmo-style.
       const correct = vampireById(room.vampireId);
+      emitEffect(room, "banish_fail", cryptWorld.x, cryptWorld.z);
       finishMatch(room, false, `${player.name} performed the rite for the ${pick.name}, but it was a ${correct.name}.`);
       return;
     }
@@ -1054,9 +1066,11 @@ io.on("connection", (socket) => {
       room.fear = Math.min(100, room.fear + 12);
       socket.emit("notice", { type: "error", message: `Ritual incomplete: ${result}` });
       addLog(room, `${player.name} began the rite but the ${pick.name} resisted: ${result}`);
+      emitEffect(room, "ritual_fizzle", cryptWorld.x, cryptWorld.z);
       emitRoom(room);
       return;
     }
+    emitEffect(room, "banish_success", cryptWorld.x, cryptWorld.z);
     finishMatch(room, true, `${player.name} banished the ${pick.name} with the ${ritual.name} rite.`);
   });
 
@@ -1187,6 +1201,7 @@ function advanceHunt(room) {
       room.fear = Math.min(100, room.fear + 22);
       room.threat = Math.max(0, room.threat - 18);
       addLog(room, `${target.name} is caught in the vampire's shadow.`);
+      emitEffect(room, "hunter_caught", target.position.x, target.position.z);
     } else if (dist < TILE * 1.4 && room.tickCount % 2 === 0) {
       room.fear = Math.min(100, room.fear + 8);
       addLog(room, `${target.name} hears movement right behind them.`);

@@ -812,6 +812,8 @@
       clueMeshes.length = 0;
       pingMarkers.forEach((p) => worldGroup.remove(p.group));
       pingMarkers.length = 0;
+      effects.forEach((e) => worldGroup.remove(e.group));
+      effects.length = 0;
       vampireMesh = null;
       cryptMesh = null;
       relicMesh = null;
@@ -1202,6 +1204,136 @@
         // Pulse the ring scale
         const s = 1.0 + Math.sin(now * 0.004) * 0.15;
         m.ring.scale.set(s, s, s);
+      }
+    }
+
+    // ---------- VFX placeholders ----------
+    // The server broadcasts 'match:effect' at key gameplay moments and we
+    // play a stand-in primitive here. Designed to be replaced one-by-one
+    // when real VFX (shaders, sprites, particles) are wired in — only the
+    // factory body for the given kind needs to change.
+    const effects = []; // { group, until, born, update?(now, alpha) }
+
+    function pushEffect(group, ttl, update) {
+      const e = { group, born: performance.now(), until: performance.now() + ttl, update };
+      worldGroup.add(group);
+      effects.push(e);
+      return e;
+    }
+
+    function makeRingPulse(x, z, color, ttl, maxRadius) {
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.85, 1.0, 32),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      const group = new THREE.Group();
+      group.add(ring);
+      group.position.set(x, 0.06, z);
+      return pushEffect(group, ttl * 1000, (now, alpha) => {
+        const t = 1 - alpha; // 0..1 progress
+        const s = 0.2 + (maxRadius - 0.2) * t;
+        ring.scale.set(s, s, 1);
+        ring.material.opacity = 0.9 * alpha;
+      });
+    }
+
+    function makeSpherePulse(x, y, z, color, ttl, maxRadius) {
+      const sphere = new THREE.Mesh(
+        new THREE.SphereGeometry(0.2, 16, 12),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7 })
+      );
+      const light = new THREE.PointLight(color, 2.0, 6);
+      const group = new THREE.Group();
+      group.add(sphere); group.add(light);
+      group.position.set(x, y, z);
+      return pushEffect(group, ttl * 1000, (now, alpha) => {
+        const t = 1 - alpha;
+        const s = 0.2 + (maxRadius - 0.2) * t;
+        sphere.scale.setScalar(s);
+        sphere.material.opacity = 0.7 * alpha;
+        light.intensity = 2.0 * alpha;
+      });
+    }
+
+    function makeBeam(x, z, color, ttl) {
+      const beam = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.6, 0.6, 8.0, 16, 1, true),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.6, side: THREE.DoubleSide })
+      );
+      beam.position.y = 4.0;
+      const light = new THREE.PointLight(color, 4.0, 14);
+      light.position.y = 3.0;
+      const group = new THREE.Group();
+      group.add(beam); group.add(light);
+      group.position.set(x, 0, z);
+      return pushEffect(group, ttl * 1000, (now, alpha) => {
+        beam.material.opacity = 0.7 * alpha;
+        light.intensity = 4.0 * alpha;
+      });
+    }
+
+    function makeRiseGlow(x, y, z, color, ttl) {
+      const orb = new THREE.Mesh(
+        new THREE.SphereGeometry(0.15, 12, 10),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 })
+      );
+      const light = new THREE.PointLight(color, 1.2, 4);
+      const group = new THREE.Group();
+      group.add(orb); group.add(light);
+      group.position.set(x, y, z);
+      return pushEffect(group, ttl * 1000, (now, alpha) => {
+        const t = 1 - alpha;
+        group.position.y = y + t * 1.6;
+        orb.material.opacity = alpha;
+        light.intensity = 1.2 * alpha;
+      });
+    }
+
+    function makeScreenFlash(color, ttl, intensity) {
+      // Add a temporary light at the player position — cheap screen-flash stand-in
+      const flash = new THREE.PointLight(color, intensity, 12);
+      flash.position.copy(controls.getObject().position);
+      const group = new THREE.Group();
+      group.add(flash);
+      return pushEffect(group, ttl * 1000, (now, alpha) => {
+        flash.intensity = intensity * alpha;
+      });
+    }
+
+    const effectFactories = {
+      evidence_logged:  (x, z) => makeRingPulse(x, z, 0x55c7a6, 0.9, 1.6),
+      ward_ignite:      (x, z) => makeSpherePulse(x, 0.6, z, 0xe1a957, 0.7, 1.2),
+      relic_pickup:     (x, z) => makeRiseGlow(x, 1.0, z, 0xf6d77a, 1.0),
+      banish_success:   (x, z) => makeBeam(x, z, 0xfff0d0, 2.0),
+      banish_fail:      (x, z) => makeRingPulse(x, z, 0xb73535, 0.8, 2.0),
+      ritual_fizzle:    (x, z) => makeRingPulse(x, z, 0x6b1a26, 0.5, 1.0),
+      hunter_caught:    (_x, _z) => makeScreenFlash(0xb73535, 0.4, 4)
+    };
+
+    function spawnEffect(kind, x, z) {
+      const factory = effectFactories[kind];
+      if (!factory) return; // Unknown effect kind — silently drop
+      factory(x, z);
+    }
+
+    function tickEffects(now) {
+      for (let i = effects.length - 1; i >= 0; i -= 1) {
+        const e = effects[i];
+        const remaining = e.until - now;
+        if (remaining <= 0) {
+          worldGroup.remove(e.group);
+          e.group.traverse?.((c) => {
+            c.geometry?.dispose?.();
+            if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
+            else c.material?.dispose?.();
+          });
+          effects.splice(i, 1);
+          continue;
+        }
+        const ttl = e.until - e.born;
+        const alpha = Math.max(0, Math.min(1, remaining / ttl));
+        e.update?.(now, alpha);
       }
     }
 
@@ -1717,7 +1849,9 @@
         if (m.material) m.material.emissiveIntensity = inRange ? 3.2 : 1.4;
       });
 
-      tickPings(performance.now());
+      const _now = performance.now();
+      tickPings(_now);
+      tickEffects(_now);
       renderer.render(scene, camera);
     }
 
@@ -1829,6 +1963,8 @@
       // Brief HUD notice for the receiving end so the marker isn't missed
       if (p.from !== socket.id) showNotice(`${p.name} pinged a location.`);
     });
+
+    socket.on('match:effect', (e) => spawnEffect(e.kind, e.x, e.z));
     socket.on('leaderboard:update', () => {
       if (currentTab === 'leaderboard') loadLeaderboard();
     });
