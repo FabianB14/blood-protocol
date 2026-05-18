@@ -834,9 +834,9 @@
 
     // ---------- Input / movement ----------
     const keys = new Set();
-    const velocity = new THREE.Vector3();
-    const direction = new THREE.Vector3();
-    const tmpVec = new THREE.Vector3();
+    const forwardVec = new THREE.Vector3();
+    const rightVec = new THREE.Vector3();
+    const upVec = new THREE.Vector3(0, 1, 0);
     let lastSent = 0;
 
     window.addEventListener('keydown', (e) => {
@@ -857,7 +857,8 @@
     controls.addEventListener('lock', () => { $('crosshair').style.display = 'block'; });
     controls.addEventListener('unlock', () => { $('crosshair').style.display = 'none'; });
 
-    // Collision against current map
+    // Collision against current map (radius matches server)
+    const PLAYER_RADIUS = 0.55;
     function tileAt(x, z) {
       if (!roomState) return '#';
       const tx = Math.floor(x / TILE);
@@ -865,11 +866,15 @@
       return roomState.mapRows[ty]?.[tx] || '#';
     }
     function blocked(x, z) {
-      const r = 0.5;
+      const r = PLAYER_RADIUS;
       return tileAt(x - r, z - r) === '#' ||
              tileAt(x + r, z - r) === '#' ||
              tileAt(x - r, z + r) === '#' ||
-             tileAt(x + r, z + r) === '#';
+             tileAt(x + r, z + r) === '#' ||
+             tileAt(x, z - r) === '#' ||
+             tileAt(x, z + r) === '#' ||
+             tileAt(x - r, z) === '#' ||
+             tileAt(x + r, z) === '#';
     }
 
     // ---------- Animation loop ----------
@@ -881,33 +886,41 @@
       // Movement
       if (controls.isLocked && roomState && roomState.phase === 'hunt') {
         const speed = keys.has('ShiftLeft') || keys.has('ShiftRight') ? 6.5 : 3.4;
-        direction.set(0, 0, 0);
-        if (keys.has('KeyW') || keys.has('ArrowUp')) direction.z -= 1;
-        if (keys.has('KeyS') || keys.has('ArrowDown')) direction.z += 1;
-        if (keys.has('KeyA') || keys.has('ArrowLeft')) direction.x -= 1;
-        if (keys.has('KeyD') || keys.has('ArrowRight')) direction.x += 1;
-        if (direction.lengthSq() > 0) direction.normalize();
 
-        // Move in camera-yaw space
-        const obj = controls.getObject();
-        const yaw = obj.rotation.y;
-        const sin = Math.sin(yaw), cos = Math.cos(yaw);
-        const moveX = (direction.x * cos - direction.z * sin) * speed * dt;
-        const moveZ = (direction.x * sin + direction.z * cos) * speed * dt;
+        const wInput = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0)
+                     - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
+        const dInput = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0)
+                     - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
 
-        const cur = obj.position;
-        // Try axes separately for wall sliding
-        const nx = cur.x + moveX;
-        if (!blocked(nx, cur.z)) cur.x = nx;
-        const nz = cur.z + moveZ;
-        if (!blocked(cur.x, nz)) cur.z = nz;
-        cur.y = PLAYER_HEIGHT;
+        if (wInput !== 0 || dInput !== 0) {
+          // Build forward / right from the actual camera direction (ignore pitch)
+          camera.getWorldDirection(forwardVec);
+          forwardVec.y = 0;
+          if (forwardVec.lengthSq() > 0) forwardVec.normalize();
+          rightVec.crossVectors(forwardVec, upVec); // right = forward x up
+
+          // Diagonal speed should not exceed straight speed
+          const len = Math.hypot(wInput, dInput) || 1;
+          const fw = wInput / len, sd = dInput / len;
+          const moveX = (forwardVec.x * fw + rightVec.x * sd) * speed * dt;
+          const moveZ = (forwardVec.z * fw + rightVec.z * sd) * speed * dt;
+
+          const obj = controls.getObject();
+          const cur = obj.position;
+          // Axis-by-axis so we slide along walls instead of sticking
+          const nx = cur.x + moveX;
+          if (!blocked(nx, cur.z)) cur.x = nx;
+          const nz = cur.z + moveZ;
+          if (!blocked(cur.x, nz)) cur.z = nz;
+          cur.y = PLAYER_HEIGHT;
+        }
 
         // Throttle network sends (~15 Hz)
         const now = performance.now();
         if (now - lastSent > 65) {
           lastSent = now;
-          socket.emit('player:move', { x: cur.x, z: cur.z, yaw });
+          const obj = controls.getObject();
+          socket.emit('player:move', { x: obj.position.x, z: obj.position.z, yaw: obj.rotation.y });
         }
       }
 

@@ -730,13 +730,17 @@ function isTileWalkable(room, tile) {
 
 function collidesWithWalls(room, pos) {
   const r = PLAYER_RADIUS;
-  const corners = [
+  const probes = [
     { x: pos.x - r, z: pos.z - r },
     { x: pos.x + r, z: pos.z - r },
     { x: pos.x - r, z: pos.z + r },
-    { x: pos.x + r, z: pos.z + r }
+    { x: pos.x + r, z: pos.z + r },
+    { x: pos.x,     z: pos.z - r },
+    { x: pos.x,     z: pos.z + r },
+    { x: pos.x - r, z: pos.z     },
+    { x: pos.x + r, z: pos.z     }
   ];
-  for (const c of corners) {
+  for (const c of probes) {
     const tile = { x: Math.floor(c.x / TILE), y: Math.floor(c.z / TILE) };
     if (!isTileWalkable(room, tile)) return true;
   }
