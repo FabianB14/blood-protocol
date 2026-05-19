@@ -438,6 +438,42 @@
       100% { transform: rotate(0deg); }
     }
 
+    /* Boot loading overlay — visible until all GLBs from /api/models load. */
+    .boot-loading {
+      position: fixed; inset: 0; z-index: 250;
+      background: #050608;
+      display: flex; align-items: center; justify-content: center;
+      transition: opacity .35s ease, visibility .35s ease;
+    }
+    .boot-loading.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+    .boot-loading-card {
+      width: min(480px, 90vw);
+      padding: 32px 28px;
+      text-align: center; display: grid; gap: 14px; justify-items: center;
+      background: rgba(15,17,20,.95);
+      border: 1px solid rgba(225,169,87,.3);
+      border-radius: 14px;
+    }
+    .boot-loading-mark {
+      width: 68px; height: 68px; border-radius: 14px;
+      display: grid; place-items: center;
+      background: linear-gradient(145deg, rgba(183,53,53,.55), rgba(225,169,87,.18));
+      border: 1px solid rgba(225,169,87,.55);
+      font-size: 30px; font-weight: 900; color: var(--amber);
+    }
+    .boot-loading h2 { margin: 0; font-size: 22px; color: var(--ink); letter-spacing: .04em; }
+    .boot-loading p { margin: 0; color: var(--muted); font-size: 13px; }
+    .boot-loading-bar {
+      width: 100%; height: 6px; background: rgba(255,255,255,.08);
+      border-radius: 999px; overflow: hidden;
+    }
+    .boot-loading-bar i {
+      display: block; height: 100%; width: 0;
+      background: linear-gradient(90deg, var(--blood), var(--amber));
+      transition: width .25s ease;
+    }
+    .boot-loading-hint { font-size: 11px; color: var(--muted); }
+
     /* Phones and tablets in portrait. Wide desktops never trigger. */
     @media (orientation: portrait) and (max-width: 932px) {
       .rotate-overlay { display: flex; }
@@ -460,6 +496,16 @@
   </script>
 </head>
 <body>
+  <div class="boot-loading" id="bootLoading">
+    <div class="boot-loading-card">
+      <div class="boot-loading-mark">V</div>
+      <h2>Nightfall: Hunters' Crusade</h2>
+      <p id="bootLoadingMsg">Loading assets…</p>
+      <div class="boot-loading-bar"><i id="bootLoadingFill"></i></div>
+      <p class="boot-loading-hint" id="bootLoadingHint">Hunters / tents / vampires / scenery</p>
+    </div>
+  </div>
+
   <div class="rotate-overlay" id="rotateOverlay" role="dialog" aria-modal="true">
     <div class="rotate-icon" aria-hidden="true"></div>
     <h2>Rotate your device</h2>
@@ -1087,22 +1133,57 @@
     let prepActive = false;
     let doorPortalMesh = null;
 
+    // Returns the visible-mesh bounding box of a GLB scene by walking every
+    // mesh's *geometry* bounding box (in world space). setFromObject is
+    // unreliable for SkinnedMeshes — it can return the bind-pose bone bounds
+    // which are much smaller than the actual visible mesh, so the hunters
+    // end up tiny when auto-scaled against it.
+    function tightBoxOf(object) {
+      const bbox = new THREE.Box3();
+      object.updateMatrixWorld(true);
+      object.traverse((node) => {
+        if ((node.isMesh || node.isSkinnedMesh) && node.geometry) {
+          if (!node.geometry.boundingBox) node.geometry.computeBoundingBox();
+          if (!node.geometry.boundingBox) return;
+          const geoBox = node.geometry.boundingBox.clone();
+          geoBox.applyMatrix4(node.matrixWorld);
+          bbox.union(geoBox);
+        }
+      });
+      return bbox;
+    }
+
+    // Tracks every solid prop placed during the prep phase so blocked() can
+    // reject movement that would walk into a tent / container / tank.
+    // Cleared on each buildPrepBase.
+    const prepColliders = [];
+
     function placeProp(catalog, name, x, z, opts = {}) {
       if (!catalog[name]) return null;
       const m = catalog[name].scene.clone(true);
-      const bbox = new THREE.Box3().setFromObject(m);
+      // Use the tight geometry-based bbox so scaling against tall narrow rigs
+      // doesn't shrink them to a postage stamp.
+      const bbox = tightBoxOf(m);
       const size = bbox.getSize(new THREE.Vector3());
       const scale = opts.scale || (opts.height ? opts.height / Math.max(0.001, size.y) : 1);
       m.scale.setScalar(scale);
-      const bb = new THREE.Box3().setFromObject(m);
+      const bb = tightBoxOf(m);
       m.position.set(x - (bb.min.x + bb.max.x) / 2, -bb.min.y, z - (bb.min.z + bb.max.z) / 2);
       if (opts.rotY != null) m.rotation.y = opts.rotY;
-      m.traverse((node) => { if (node.isMesh) node.frustumCulled = false; });
+      m.traverse((node) => {
+        if (node.isMesh || node.isSkinnedMesh) {
+          node.frustumCulled = false;
+        }
+      });
+      // Record collider if requested. We use a simple cylinder approximation
+      // (x, z, radius) — fine for our top-down player movement.
+      if (opts.collider) prepColliders.push({ x, z, r: opts.collider });
       return m;
     }
 
     function buildPrepBase(room) {
       clearWorld();
+      prepColliders.length = 0; // fresh list each rebuild
       prepActive = true;
       scene.background = new THREE.Color(0x04060a);
       scene.fog = new THREE.Fog(0x04060a, 18, 80);
@@ -1183,35 +1264,36 @@
         if (m) worldGroup.add(m);
         return m;
       };
-      // Three tents in a row at the back of the base
-      add('tent_001.glb', -6, 6, { height: 2.6, rotY: Math.PI });
-      add('tent_001.glb', 0, 6, { height: 2.6, rotY: Math.PI });
-      add('tent_001.glb', 6, 6, { height: 2.6, rotY: Math.PI });
+      // Three tents in a row at the back of the base (doubled vs original
+      // for visual presence). Collider radius keeps the player out.
+      add('tent_001.glb', -7, 8, { height: 4.5, rotY: Math.PI, collider: 2.0 });
+      add('tent_001.glb',  0, 8, { height: 4.5, rotY: Math.PI, collider: 2.0 });
+      add('tent_001.glb',  7, 8, { height: 4.5, rotY: Math.PI, collider: 2.0 });
       // Watchtower behind everything
-      add('tower_001.glb', 12, 14, { height: 8, rotY: -Math.PI / 4 });
+      add('tower_001.glb', 14, 16, { height: 12, rotY: -Math.PI / 4, collider: 1.8 });
       // Storage container to the right
-      add('container_001.glb', -12, 4, { height: 2.5, rotY: 0 });
+      add('container_001.glb', -14, 5, { height: 4.0, rotY: 0, collider: 2.4 });
       // Gear table front-and-center: radio + crates
-      add('radiostation_001.glb', 0, 2, { height: 1.0 });
-      add('table_001.glb', -3, 2, { height: 0.9 });
-      // A bunch of crates and barrels scattered around
+      add('radiostation_001.glb', 1, 4, { height: 1.8, collider: 0.8 });
+      add('table_001.glb', -3, 4, { height: 1.4, collider: 1.0 });
+      // A bunch of crates and barrels scattered around the tents
       for (let i = 1; i <= 10; i += 1) {
         const name = `box_${String(i).padStart(3, '0')}.glb`;
         const angle = (i / 10) * Math.PI * 2;
-        const r = 4 + (i % 3);
-        add(name, Math.cos(angle) * r, 2 + Math.sin(angle) * 3, { height: 0.6, rotY: Math.random() * Math.PI });
+        const r = 5 + (i % 3);
+        add(name, Math.cos(angle) * r, 5 + Math.sin(angle) * 3, { height: 0.9, rotY: Math.random() * Math.PI, collider: 0.5 });
       }
       for (let i = 1; i <= 3; i += 1) {
         const name = `barrel_${String(i).padStart(3, '0')}.glb`;
-        add(name, -8 + i * 2.5, 9.5, { height: 1.0 });
+        add(name, -8 + i * 2.5, 11, { height: 1.6, collider: 0.5 });
       }
       // Defensive perimeter — hedgehogs, mortar, targets, tank
-      add('hedgehog_001.glb', -10, -2, { height: 0.9 });
-      add('hedgehog_001.glb', 10, -2, { height: 0.9 });
-      add('mortar_001.glb', -16, 8, { height: 1.4, rotY: Math.PI / 6 });
-      add('target_001.glb', 14, -4, { height: 1.8 });
-      add('target_002.glb', 16, -4, { height: 1.8 });
-      add('tank_001.glb', -18, 14, { height: 6.5, rotY: -Math.PI / 5 });
+      add('hedgehog_001.glb', -10, -2, { height: 1.4, collider: 1.0 });
+      add('hedgehog_001.glb',  10, -2, { height: 1.4, collider: 1.0 });
+      add('mortar_001.glb', -16, 8, { height: 2.0, rotY: Math.PI / 6, collider: 1.0 });
+      add('target_001.glb', 14, -4, { height: 2.4, collider: 0.6 });
+      add('target_002.glb', 16, -4, { height: 2.4, collider: 0.6 });
+      add('tank_001.glb', -18, 14, { height: 7.5, rotY: -Math.PI / 5, collider: 3.0 });
 
       // Warm lantern lights at the tents
       [[-6, 6], [0, 6], [6, 6], [-3, 2], [-12, 4]].forEach(([x, z]) => {
@@ -1852,7 +1934,19 @@
       try {
         const res = await fetch('/api/models');
         manifest = await res.json();
-      } catch (_e) { return; }
+      } catch (_e) { hideBootLoading(); return; }
+
+      // Total GLB count so the boot overlay can show a real percentage.
+      const totalCount =
+        (manifest.hunters || []).length +
+        (manifest.tent ? 1 : 0) +
+        Object.keys(manifest.tents || {}).length +
+        Object.keys(manifest.houses || {}).length +
+        Object.keys(manifest.vampires || {}).length +
+        Object.keys(manifest.trees || {}).length +
+        Object.keys(manifest.streets || {}).length +
+        Object.keys(manifest.grass || {}).length;
+      bootProgress('hunters', totalCount);
 
       // Hunters
       const hunterUrls = manifest.hunters || [];
@@ -1860,13 +1954,17 @@
         gltfLoader.load(
           url,
           (gltf) => {
-            // Auto-scale to 1.75m tall and plant feet at local y=0 so the
-            // mesh sits correctly when parented to a player group at y=0.
-            const bbox1 = new THREE.Box3().setFromObject(gltf.scene);
+            // Auto-scale to 1.85m tall (camera eye-line is 1.7m, so the
+            // hunter is just slightly above the player camera which reads
+            // as "human-sized" instead of "tiny"). Use the geometry-based
+            // bbox helper because Three.js's setFromObject under-reports
+            // the size of skinned meshes (bind-pose bounds, not deformed).
+            const bbox1 = tightBoxOf(gltf.scene);
             const size = bbox1.getSize(new THREE.Vector3());
-            const scale = 1.75 / Math.max(0.0001, size.y);
+            const TARGET_HEIGHT = 1.85;
+            const scale = TARGET_HEIGHT / Math.max(0.0001, size.y);
             gltf.scene.scale.setScalar(scale);
-            const bbox2 = new THREE.Box3().setFromObject(gltf.scene);
+            const bbox2 = tightBoxOf(gltf.scene);
             gltf.scene.position.y -= bbox2.min.y;
 
             // Defensively scrub every mesh + material so they actually render:
@@ -1905,42 +2003,48 @@
       })));
       for (const item of loaded) if (item) hunterModels.push(item);
       if (hunterModels.length > 0) console.log(`Loaded ${hunterModels.length} hunter model(s).`);
+      bootLoadDone += hunterUrls.length;
+      bootProgress('tents', totalCount);
 
       // Tent (the "central" tent, used by the simple staging area)
       if (manifest.tent) {
         const g = await loadGLTFCached(manifest.tent);
         if (g) modelCatalog.tent = { scene: g.scene };
+        bootTick('tent base');
       }
       // All other tent kit props (crates, barrels, tower, tank, mortar...)
       // loaded by filename so buildPrepBase can place them by name.
       for (const [name, url] of Object.entries(manifest.tents || {})) {
         const g = await loadGLTFCached(url);
         if (g) modelCatalog.tents[name] = { scene: g.scene };
+        bootTick(name);
       }
-      // Environment scenery (trees / streets / grass) — scattered around
-      // the staging area + along the approach to the house.
+      bootProgress('scenery', totalCount);
       for (const [name, url] of Object.entries(manifest.trees || {})) {
         const g = await loadGLTFCached(url);
         if (g) modelCatalog.trees[name] = { scene: g.scene };
+        bootTick(name);
       }
       for (const [name, url] of Object.entries(manifest.streets || {})) {
         const g = await loadGLTFCached(url);
         if (g) modelCatalog.streets[name] = { scene: g.scene };
+        bootTick(name);
       }
       for (const [name, url] of Object.entries(manifest.grass || {})) {
         const g = await loadGLTFCached(url);
         if (g) modelCatalog.grass[name] = { scene: g.scene };
+        bootTick(name);
       }
-      // Houses (per-contract id)
+      bootProgress('houses', totalCount);
       for (const [id, url] of Object.entries(manifest.houses || {})) {
         const g = await loadGLTFCached(url);
         if (g) modelCatalog.houses[id] = { scene: g.scene };
+        bootTick(id);
       }
-      // Vampires (per-species id)
+      bootProgress('vampires', totalCount);
       for (const [id, url] of Object.entries(manifest.vampires || {})) {
         const g = await loadGLTFCached(url);
         if (g) {
-          // Same culling defensive as hunters — these may also be Mixamo-rigged
           g.scene.traverse((node) => {
             if (node.isMesh || node.isSkinnedMesh) {
               node.frustumCulled = false;
@@ -1951,6 +2055,7 @@
           });
           modelCatalog.vampires[id] = { scene: g.scene, animations: g.animations };
         }
+        bootTick(id);
       }
     }
 
@@ -2294,7 +2399,18 @@
       // report 'wall' for every tile around the FOB, so skip wall collision
       // entirely while in prep. (Server-side prep also has no wall check —
       // see player:move in the prep branch.)
-      if (roomState?.phase === 'prep') return false;
+      if (roomState?.phase === 'prep') {
+        // No grid walls in prep, but enforce cylinder colliders so the
+        // player can't walk through tents / containers / the tank.
+        const r2 = PLAYER_RADIUS;
+        for (const c of prepColliders) {
+          const dx = x - c.x;
+          const dz = z - c.z;
+          const reach = c.r + r2;
+          if (dx * dx + dz * dz < reach * reach) return true;
+        }
+        return false;
+      }
       const r = PLAYER_RADIUS;
       return tileAt(x - r, z - r) === '#' ||
              tileAt(x + r, z - r) === '#' ||
@@ -3301,7 +3417,29 @@
       }
     });
 
+    // Track GLB load progress and surface it on the boot overlay.
+    let bootLoadTotal = 0;
+    let bootLoadDone = 0;
+    function bootProgress(label, total) {
+      bootLoadTotal = total;
+      $('bootLoadingMsg').textContent = `Loading ${label}…`;
+      $('bootLoadingFill').style.width = total > 0 ? `${Math.round((bootLoadDone / total) * 100)}%` : '0%';
+    }
+    function bootTick(label) {
+      bootLoadDone += 1;
+      $('bootLoadingFill').style.width = bootLoadTotal > 0 ? `${Math.round((bootLoadDone / bootLoadTotal) * 100)}%` : '0%';
+      $('bootLoadingHint').textContent = label;
+    }
+    function hideBootLoading() {
+      $('bootLoading').classList.add('hidden');
+    }
+
     loadHunterModels().then(() => {
+      // Once the GLB sweep is done, hide the boot overlay so the title can
+      // show. We do this here (not on Promise.all of every helper) because
+      // hunter / tent / vampire models are the heavy payload — the JSON
+      // fetches above are tiny.
+      hideBootLoading();
       // If the player landed in prep before the tent / FOB props finished
       // loading, the base will have skipped any missing meshes silently.
       // Rebuild it now so the uploaded models actually show up.
