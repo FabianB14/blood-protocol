@@ -1868,18 +1868,35 @@
             gltf.scene.scale.setScalar(scale);
             const bbox2 = new THREE.Box3().setFromObject(gltf.scene);
             gltf.scene.position.y -= bbox2.min.y;
-            // Mixamo / many GLBs ship with stale bounding spheres on their
-            // skinned meshes — Three.js will frustum-cull them based on the
-            // un-scaled bounds, so they vanish from view despite being
-            // present. Disable culling so they always render.
+
+            // Defensively scrub every mesh + material so they actually render:
+            // 1) frustum culling off (Mixamo bounds are unreliable post-scale)
+            // 2) force opaque + full opacity (some GLBs ship with alphaMode
+            //    BLEND or a baseColor alpha < 1, which makes the body invisible
+            //    while the name sprite stays readable)
+            // 3) double-sided as a safety net for inside-out exports
+            // 4) recompute bounding sphere from the new geometry
+            let meshCount = 0, animCount = gltf.animations.length;
             gltf.scene.traverse((node) => {
               if (node.isMesh || node.isSkinnedMesh) {
+                meshCount += 1;
                 node.frustumCulled = false;
-                if (node.geometry && node.geometry.computeBoundingSphere) {
+                if (node.geometry?.computeBoundingSphere) {
                   try { node.geometry.computeBoundingSphere(); } catch (_e) {}
                 }
+                const mats = Array.isArray(node.material) ? node.material : [node.material];
+                mats.forEach((m) => {
+                  if (!m) return;
+                  m.transparent = false;
+                  m.opacity = 1;
+                  m.depthWrite = true;
+                  m.side = THREE.DoubleSide;
+                  if (m.alphaTest !== undefined) m.alphaTest = 0;
+                  m.needsUpdate = true;
+                });
               }
             });
+            console.log(`Loaded ${url.split('/').pop()}: ${meshCount} mesh(es), ${animCount} animation(s), bbox ${size.x.toFixed(1)}x${size.y.toFixed(1)}x${size.z.toFixed(1)} m, scaled ${scale.toFixed(2)}x`);
             resolve({ url, scene: gltf.scene, animations: gltf.animations });
           },
           undefined,
@@ -1986,15 +2003,21 @@
         const tint = new THREE.Color(colorHex[player.profile?.color] || 0xffffff);
         skinned.traverse((node) => {
           if (node.isMesh || node.isSkinnedMesh) {
-            // Disable culling on every clone to avoid the Mixamo-rigged
-            // "ghost hunter" bug where the body's bounding sphere is wrong.
+            // Defensive — same scrub as the cached scene in case material
+            // clones somehow inherit transparent state from the renderer.
             node.frustumCulled = false;
             node.material = Array.isArray(node.material)
               ? node.material.map((m) => m.clone())
               : node.material.clone();
             const mats = Array.isArray(node.material) ? node.material : [node.material];
             mats.forEach((m) => {
+              if (!m) return;
+              m.transparent = false;
+              m.opacity = 1;
+              m.depthWrite = true;
+              m.side = THREE.DoubleSide;
               if (m.color) m.color.lerp(tint, 0.35); // tint without crushing texture
+              m.needsUpdate = true;
             });
           }
         });
@@ -2507,15 +2530,20 @@
         }
       }
 
-      if (prevPhase === 'lobby' && room.phase === 'prep') {
-        // Dropped the team into the FOB — bail out of the lobby modal so
-        // they can actually walk around without scrolling for Resume.
+      // Force the menu / title screen down on ANY transition into a
+      // playable phase. Covers late joiners, host-clicks-Start-Hunt, and
+      // the case where the modal was opened mid-game (Tab) and the host
+      // then transitions everyone forward.
+      const enteringPlay = (room.phase === 'prep' || room.phase === 'hunt') && prevPhase !== room.phase;
+      if (enteringPlay) {
         closeModal();
+        hideTitle();
+      }
+      if (prevPhase !== 'prep' && room.phase === 'prep') {
         showNotice(isTouchDevice ? 'In the staging post. Drag the right side to look, joystick to walk.' : 'In the staging post. Click anywhere to lock the pointer, then WASD to walk to the door.');
       }
       if (prevPhase !== 'hunt' && room.phase === 'hunt') {
         controls.getObject().position.set(room.spawn.x, PLAYER_HEIGHT, room.spawn.z);
-        closeModal();
         showNotice(isTouchDevice ? 'Hunt begun. Drag the right side to look around.' : 'Click anywhere to lock the pointer and hunt.');
       }
       if (room.phase === 'complete' && prevPhase === 'hunt') {
@@ -3277,12 +3305,25 @@
       // If the player landed in prep before the tent / FOB props finished
       // loading, the base will have skipped any missing meshes silently.
       // Rebuild it now so the uploaded models actually show up.
+      // Preserve the player's camera position/rotation across rebuilds —
+      // otherwise the camera snaps back to the spawn the moment late
+      // models finish loading, which feels like a viewport teleport while
+      // you're trying to look around.
+      const savedPos = controls.getObject().position.clone();
+      const savedQuat = camera.quaternion.clone();
+      let rebuilt = false;
       if (prepActive && roomState?.phase === 'prep') {
         buildPrepBase(roomState);
+        rebuilt = true;
       }
       if (stagingActive && modelCatalog.tent) {
         // Same for the boot staging area when the tent GLB landed late.
         buildStagingArea();
+        rebuilt = true;
+      }
+      if (rebuilt) {
+        controls.getObject().position.copy(savedPos);
+        camera.quaternion.copy(savedQuat);
       }
       if (hunterModels.length === 0 || !roomState) return;
       // Swap any placeholder capsule hunters created before models loaded
