@@ -468,6 +468,9 @@
 
   <canvas id="three"></canvas>
   <div class="crosshair" id="crosshair" style="display:none"></div>
+  <div id="doorPrompt" style="display:none; position:fixed; left:50%; top:62%; transform:translateX(-50%); padding:10px 18px; background:rgba(0,0,0,.7); border:1px solid rgba(225,169,87,.5); border-radius:8px; color:var(--ink); font-size:14px; font-weight:800; pointer-events:none; z-index: 30; backdrop-filter: blur(6px);">
+    <kbd style="background:rgba(225,169,87,.3); border:1px solid var(--amber); border-radius:4px; padding:2px 8px; font-family:ui-monospace,monospace;">E</kbd> Enter the house
+  </div>
 
   <div id="hud">
     <div class="top-bar">
@@ -1075,6 +1078,185 @@
       scene.fog = new THREE.Fog(0x05060a, 6, 28);
     }
 
+    // ---------- Forward Operating Base (prep phase) ----------
+    // A walkable staging post built from the military prop kit in
+    // public/models/tents/. The team spawns here when the host hits Start
+    // Hunt; they walk to a glowing door portal at the front of the house
+    // exterior to actually trigger match:enter-house.
+    let prepActive = false;
+    let doorPortalMesh = null;
+
+    function placeProp(catalog, name, x, z, opts = {}) {
+      if (!catalog[name]) return null;
+      const m = catalog[name].scene.clone(true);
+      const bbox = new THREE.Box3().setFromObject(m);
+      const size = bbox.getSize(new THREE.Vector3());
+      const scale = opts.scale || (opts.height ? opts.height / Math.max(0.001, size.y) : 1);
+      m.scale.setScalar(scale);
+      const bb = new THREE.Box3().setFromObject(m);
+      m.position.set(x - (bb.min.x + bb.max.x) / 2, -bb.min.y, z - (bb.min.z + bb.max.z) / 2);
+      if (opts.rotY != null) m.rotation.y = opts.rotY;
+      m.traverse((node) => { if (node.isMesh) node.frustumCulled = false; });
+      return m;
+    }
+
+    function buildPrepBase(room) {
+      clearWorld();
+      prepActive = true;
+      scene.background = new THREE.Color(0x04060a);
+      scene.fog = new THREE.Fog(0x04060a, 18, 80);
+
+      // Ground
+      const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(140, 140),
+        new THREE.MeshStandardMaterial({ color: 0x1a2218, roughness: 1.0 })
+      );
+      ground.rotation.x = -Math.PI / 2;
+      worldGroup.add(ground);
+
+      // Moon
+      const moon = new THREE.Mesh(
+        new THREE.SphereGeometry(3.5, 24, 18),
+        new THREE.MeshBasicMaterial({ color: 0xfaf3d2 })
+      );
+      moon.position.set(-26, 32, -55);
+      worldGroup.add(moon);
+      const moonLight = new THREE.DirectionalLight(0xbac3da, 0.45);
+      moonLight.position.set(-26, 32, -55);
+      worldGroup.add(moonLight);
+
+      // Tree silhouettes around the perimeter
+      for (let i = 0; i < 36; i += 1) {
+        const a = (i / 36) * Math.PI * 2 + Math.random() * 0.2;
+        const r = 38 + Math.random() * 16;
+        const h = 4 + Math.random() * 4;
+        const tree = new THREE.Mesh(
+          new THREE.ConeGeometry(1.4, h, 6),
+          new THREE.MeshStandardMaterial({ color: 0x0c1411, roughness: 1.0 })
+        );
+        tree.position.set(Math.cos(a) * r, h / 2, Math.sin(a) * r);
+        worldGroup.add(tree);
+      }
+
+      // ---- Military FOB layout ----
+      // Lay out the loaded prop kit in a small forward operating base.
+      // Anchor: facing toward -Z (where the house exterior is rendered).
+      const props = modelCatalog;
+
+      const add = (name, x, z, opts) => {
+        const m = placeProp(props.tents || {}, name, x, z, opts);
+        if (m) worldGroup.add(m);
+        return m;
+      };
+      // Three tents in a row at the back of the base
+      add('tent_001.glb', -6, 6, { height: 2.6, rotY: Math.PI });
+      add('tent_001.glb', 0, 6, { height: 2.6, rotY: Math.PI });
+      add('tent_001.glb', 6, 6, { height: 2.6, rotY: Math.PI });
+      // Watchtower behind everything
+      add('tower_001.glb', 12, 14, { height: 8, rotY: -Math.PI / 4 });
+      // Storage container to the right
+      add('container_001.glb', -12, 4, { height: 2.5, rotY: 0 });
+      // Gear table front-and-center: radio + crates
+      add('radiostation_001.glb', 0, 2, { height: 1.0 });
+      add('table_001.glb', -3, 2, { height: 0.9 });
+      // A bunch of crates and barrels scattered around
+      for (let i = 1; i <= 10; i += 1) {
+        const name = `box_${String(i).padStart(3, '0')}.glb`;
+        const angle = (i / 10) * Math.PI * 2;
+        const r = 4 + (i % 3);
+        add(name, Math.cos(angle) * r, 2 + Math.sin(angle) * 3, { height: 0.6, rotY: Math.random() * Math.PI });
+      }
+      for (let i = 1; i <= 3; i += 1) {
+        const name = `barrel_${String(i).padStart(3, '0')}.glb`;
+        add(name, -8 + i * 2.5, 9.5, { height: 1.0 });
+      }
+      // Defensive perimeter — hedgehogs, mortar, targets, tank
+      add('hedgehog_001.glb', -10, -2, { height: 0.9 });
+      add('hedgehog_001.glb', 10, -2, { height: 0.9 });
+      add('mortar_001.glb', -16, 8, { height: 1.4, rotY: Math.PI / 6 });
+      add('target_001.glb', 14, -4, { height: 1.8 });
+      add('target_002.glb', 16, -4, { height: 1.8 });
+      add('tank_001.glb', -18, 14, { height: 2.4, rotY: -Math.PI / 5 });
+
+      // Warm lantern lights at the tents
+      [[-6, 6], [0, 6], [6, 6], [-3, 2], [-12, 4]].forEach(([x, z]) => {
+        const light = new THREE.PointLight(0xffaa55, 1.6, 9);
+        light.position.set(x, 2.4, z);
+        worldGroup.add(light);
+        const bulb = new THREE.Mesh(
+          new THREE.SphereGeometry(0.12, 10, 8),
+          new THREE.MeshStandardMaterial({ color: 0xffd58a, emissive: 0xffaa42, emissiveIntensity: 1.8 })
+        );
+        bulb.position.set(x, 2.4, z);
+        worldGroup.add(bulb);
+      });
+
+      // House exterior placed in front of the base. Use the per-contract
+      // house GLB if present, else the 'default.glb' fallback, else a
+      // primitive haunted-house silhouette.
+      const houseModel = modelCatalog.houses[room.contractId] || modelCatalog.houses['default'] || modelCatalog.houses['farm_house'];
+      if (houseModel) {
+        const h = houseModel.scene.clone(true);
+        const bbox = new THREE.Box3().setFromObject(h);
+        const size = bbox.getSize(new THREE.Vector3());
+        const scale = 8 / Math.max(0.001, size.y);
+        h.scale.setScalar(scale);
+        const bb = new THREE.Box3().setFromObject(h);
+        // Position so the house front is at z = -8 and centered on x
+        h.position.set(-(bb.min.x + bb.max.x) / 2, -bb.min.y, -16 - (bb.min.z + bb.max.z) / 2);
+        h.traverse((node) => { if (node.isMesh) node.frustumCulled = false; });
+        worldGroup.add(h);
+      } else {
+        // Primitive house silhouette so there's always a 'destination' visible
+        const wallsMat = new THREE.MeshStandardMaterial({ color: 0x2a221a, roughness: 0.95 });
+        const houseBox = new THREE.Mesh(new THREE.BoxGeometry(14, 8, 10), wallsMat);
+        houseBox.position.set(0, 4, -16);
+        worldGroup.add(houseBox);
+        const roof = new THREE.Mesh(
+          new THREE.ConeGeometry(10, 5, 4),
+          new THREE.MeshStandardMaterial({ color: 0x14100a, roughness: 1.0 })
+        );
+        roof.rotation.y = Math.PI / 4;
+        roof.position.set(0, 10.5, -16);
+        worldGroup.add(roof);
+      }
+
+      // Door portal — the trigger for match:enter-house. Glowing vertical
+      // rectangle visible from the base; walking within 2 m lights the
+      // prompt; E (or click) emits match:enter-house.
+      const door = new THREE.Group();
+      const frame = new THREE.Mesh(
+        new THREE.BoxGeometry(2.2, 3.2, 0.2),
+        new THREE.MeshStandardMaterial({ color: 0xb73535, emissive: 0xb73535, emissiveIntensity: 1.4, transparent: true, opacity: 0.85 })
+      );
+      frame.position.y = 1.6;
+      door.add(frame);
+      const doorLight = new THREE.PointLight(0xff5a5a, 2.0, 8);
+      doorLight.position.y = 2.0;
+      door.add(doorLight);
+      door.position.set(0, 0, -10);
+      door.userData.isDoorPortal = true;
+      doorPortalMesh = door;
+      worldGroup.add(door);
+
+      // Player spawn — at the back of the base near the tents, looking south
+      controls.getObject().position.set(0, PLAYER_HEIGHT, 14);
+      camera.lookAt(0, PLAYER_HEIGHT, -10);
+    }
+
+    function leavePrepBase() {
+      prepActive = false;
+      doorPortalMesh = null;
+      scene.background = new THREE.Color(0x05060a);
+      scene.fog = new THREE.Fog(0x05060a, 6, 28);
+    }
+
+    function isNearDoorPortal() {
+      if (!doorPortalMesh || !prepActive) return false;
+      const p = controls.getObject().position;
+      return Math.hypot(p.x - doorPortalMesh.position.x, p.z - doorPortalMesh.position.z) < 2.5;
+    }
+
     // ---------- Build map ----------
     // Materials are mutated in place by loadTextures() once /api/textures responds.
     const wallMat = new THREE.MeshStandardMaterial({ color: 0xb4b1aa, roughness: 0.92, metalness: 0.02 });
@@ -1261,26 +1443,54 @@
         vampireMesh.traverse((c) => { c.geometry?.dispose?.(); c.material?.dispose?.(); });
       }
       const group = new THREE.Group();
-      const body = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.35, 0.5, 1.9, 12),
-        new THREE.MeshStandardMaterial({ color: 0x0c0608, roughness: 0.95, emissive: 0x110505, emissiveIntensity: 0.3 })
-      );
-      body.position.y = 0.95;
-      group.add(body);
-      const head = new THREE.Mesh(
-        new THREE.SphereGeometry(0.28, 14, 12),
-        new THREE.MeshStandardMaterial({ color: 0x1c1316, roughness: 0.85 })
-      );
-      head.position.y = 2.0;
-      group.add(head);
-      // eyes
-      const eyeMat = new THREE.MeshStandardMaterial({ color: 0xff2a2a, emissive: 0xff1010, emissiveIntensity: 2.5 });
-      const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), eyeMat);
-      eyeL.position.set(-0.09, 2.02, 0.25);
-      group.add(eyeL);
-      const eyeR = eyeL.clone();
-      eyeR.position.set(0.09, 2.02, 0.25);
-      group.add(eyeR);
+
+      // Per-species GLB if available — otherwise a primitive scary figure.
+      // We only render the model if it's loaded; vampireId itself is still
+      // hidden from the player UI until evidence threshold is met.
+      const speciesMesh = room.vampireId && modelCatalog.vampires[room.vampireId];
+      // If no species-specific mesh, also try the 'default' slot so the user
+      // can drop a single placeholder for every vampire.
+      const fallbackMesh = !speciesMesh && modelCatalog.vampires['default'];
+      const meshDef = speciesMesh || fallbackMesh;
+      if (meshDef) {
+        const m = meshDef.scene.clone(true);
+        const bbox = new THREE.Box3().setFromObject(m);
+        const size = bbox.getSize(new THREE.Vector3());
+        const targetH = 1.9;
+        const scale = targetH / Math.max(0.001, size.y);
+        m.scale.setScalar(scale);
+        const bb = new THREE.Box3().setFromObject(m);
+        m.position.y -= bb.min.y;
+        m.traverse((node) => {
+          if (node.isMesh || node.isSkinnedMesh) {
+            node.frustumCulled = false;
+            // Clone materials so we can fade per-instance without leaking
+            node.material = Array.isArray(node.material) ? node.material.map((mm) => mm.clone()) : node.material.clone();
+          }
+        });
+        group.add(m);
+      } else {
+        const body = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.35, 0.5, 1.9, 12),
+          new THREE.MeshStandardMaterial({ color: 0x0c0608, roughness: 0.95, emissive: 0x110505, emissiveIntensity: 0.3 })
+        );
+        body.position.y = 0.95;
+        group.add(body);
+        const head = new THREE.Mesh(
+          new THREE.SphereGeometry(0.28, 14, 12),
+          new THREE.MeshStandardMaterial({ color: 0x1c1316, roughness: 0.85 })
+        );
+        head.position.y = 2.0;
+        group.add(head);
+        const eyeMat = new THREE.MeshStandardMaterial({ color: 0xff2a2a, emissive: 0xff1010, emissiveIntensity: 2.5 });
+        const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), eyeMat);
+        eyeL.position.set(-0.09, 2.02, 0.25);
+        group.add(eyeL);
+        const eyeR = eyeL.clone();
+        eyeR.position.set(0.09, 2.02, 0.25);
+        group.add(eyeR);
+      }
+
       const halo = new THREE.PointLight(0xff2020, 1.2, 5.5, 1.6);
       halo.position.y = 1.8;
       halo.userData.baseIntensity = 1.2;
@@ -1588,7 +1798,7 @@
     // Cache of additional GLBs (tent, per-house, per-vampire) loaded once at
     // boot. Each entry: { scene, animations } — no auto-scaling here since
     // these models are scene props, not character-sized.
-    const modelCatalog = { tent: null, houses: {}, vampires: {} };
+    const modelCatalog = { tent: null, tents: {}, houses: {}, vampires: {} };
 
     function loadGLTFCached(url) {
       return new Promise((resolve) => {
@@ -1642,10 +1852,16 @@
       for (const item of loaded) if (item) hunterModels.push(item);
       if (hunterModels.length > 0) console.log(`Loaded ${hunterModels.length} hunter model(s).`);
 
-      // Tent
+      // Tent (the "central" tent, used by the simple staging area)
       if (manifest.tent) {
         const g = await loadGLTFCached(manifest.tent);
         if (g) modelCatalog.tent = { scene: g.scene };
+      }
+      // All other tent kit props (crates, barrels, tower, tank, mortar...)
+      // loaded by filename so buildPrepBase can place them by name.
+      for (const [name, url] of Object.entries(manifest.tents || {})) {
+        const g = await loadGLTFCached(url);
+        if (g) modelCatalog.tents[name] = { scene: g.scene };
       }
       // Houses (per-contract id)
       for (const [id, url] of Object.entries(manifest.houses || {})) {
@@ -1815,7 +2031,15 @@
       if (e.code === 'Tab' && !inField) { e.preventDefault(); toggleMenu(); return; }
       if (modalOpen() || banishOpen() || inField) return;
       keys.add(e.code);
-      if (e.code === 'KeyE') socket.emit('match:scan');
+      if (e.code === 'KeyE') {
+        // In prep phase, E next to the door portal enters the house;
+        // otherwise it scans for evidence as usual.
+        if (roomState?.phase === 'prep' && isNearDoorPortal()) {
+          socket.emit('match:enter-house');
+        } else {
+          socket.emit('match:scan');
+        }
+      }
       if (e.code === 'KeyQ') socket.emit('match:ward');
       if (e.code === 'KeyF') socket.emit('match:seal');
       if (e.code === 'KeyJ') openMenu('journal');
@@ -2001,7 +2225,7 @@
       const dt = Math.min(0.05, clock.getDelta());
 
       // Movement — allowed when pointer-locked (desktop) OR on a touch device
-      const canControl = (controls.isLocked || isTouchDevice) && roomState && roomState.phase === 'hunt' && !modalOpen();
+      const canControl = (controls.isLocked || isTouchDevice) && roomState && (roomState.phase === 'hunt' || roomState.phase === 'prep') && !modalOpen();
       if (canControl) {
         const sprint = (keys.has('ShiftLeft') || keys.has('ShiftRight') || touchInput.sprint) && !investigating;
         let speed = sprint ? 6.5 : 3.4;
@@ -2066,6 +2290,17 @@
         }
       });
 
+      // Door prompt — only in prep, only when within trigger range
+      $('doorPrompt').style.display = isNearDoorPortal() ? 'block' : 'none';
+      // Pulse the portal so it draws the eye even from far away
+      if (doorPortalMesh) {
+        const t = clock.elapsedTime;
+        const k = 0.7 + Math.sin(t * 2.4) * 0.3;
+        doorPortalMesh.traverse((node) => {
+          if (node.material && node.material.emissive) node.material.emissiveIntensity = 1.0 + k * 0.8;
+        });
+      }
+
       // Vampire bob + proximity/moon-driven visibility.
       // The body is invisible at range and slowly resolves as the player
       // gets closer OR as the moon meter climbs. Crosses to fully visible
@@ -2081,12 +2316,17 @@
         vampireMesh.rotation.y = Math.atan2(dx, dz);
 
         const distance = Math.hypot(dx, dz);
-        const moonAlpha = Math.max(0, ((roomState.moon || 0) - 30) / 50); // 0 at moon<=30, 1 at moon>=80
+        // Tighter: only fully visible when close enough to bite, and only
+        // partly visible near moon-peak. Sub-15% alpha clamps to invisible
+        // so the body never lingers as a faint blob.
+        const moonAlpha = Math.max(0, ((roomState.moon || 0) - 65) / 30); // 0 at moon<=65, 1 at moon>=95
         let proximityAlpha;
-        if (distance < 4) proximityAlpha = 1;
-        else if (distance < 12) proximityAlpha = 1 - (distance - 4) / 8;
+        if (distance < 2.2) proximityAlpha = 1;
+        else if (distance < 6) proximityAlpha = 1 - (distance - 2.2) / 3.8;
         else proximityAlpha = 0;
-        const target = Math.max(0, Math.min(1, Math.max(proximityAlpha, moonAlpha)));
+        let target = Math.max(proximityAlpha, moonAlpha);
+        if (target < 0.15) target = 0; // hard cut to fully invisible below threshold
+        target = Math.max(0, Math.min(1, target));
         // Smooth toward target so the vampire doesn't pop into view
         vampireMesh.userData.visibilityAlpha = vampireMesh.userData.visibilityAlpha ?? 0;
         vampireMesh.userData.visibilityAlpha += (target - vampireMesh.userData.visibilityAlpha) * Math.min(1, dt * 3);
@@ -2160,9 +2400,17 @@
       // staging so a freshly-started hunt has the right geometry.
       if (room.phase === 'lobby') {
         if (!stagingActive) buildStagingArea();
+        if (prepActive) leavePrepBase();
+      } else if (room.phase === 'prep') {
+        if (stagingActive) leaveStagingArea();
+        if (!prepActive || room.contractId !== prevContract) {
+          if (prepActive) leavePrepBase();
+          buildPrepBase(room);
+        }
       } else {
-        if (stagingActive || room.contractId !== prevContract) {
-          if (stagingActive) leaveStagingArea();
+        if (stagingActive) leaveStagingArea();
+        if (prepActive) leavePrepBase();
+        if (room.contractId !== prevContract || prevPhase !== 'hunt') {
           buildMap(room);
         }
       }

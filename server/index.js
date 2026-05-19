@@ -556,10 +556,23 @@ function scanModels() {
     .sort((a, b) => a === "default.glb" ? -1 : b === "default.glb" ? 1 : a.localeCompare(b))
     .map((f) => `/models/hunters/${encodeURIComponent(f)}`);
 
-  // Tent: prefer tent.glb; otherwise the first file
+  // Tent: prefer tent.glb, then any file starting with 'tent_', then any
+  // glb that mentions tent. The user's military kit drops many props in
+  // here (barrels, crates, tank, etc.) so a more selective pick keeps the
+  // staging tent slot pointing at an actual tent.
   const tentFiles = safeList("tents");
-  const tentFile = tentFiles.find((f) => f === "tent.glb") || tentFiles[0];
+  const tentFile =
+    tentFiles.find((f) => f === "tent.glb") ||
+    tentFiles.find((f) => /^tent[_-]?/i.test(f)) ||
+    tentFiles.find((f) => /tent/i.test(f)) ||
+    tentFiles[0];
   if (tentFile) out.tent = `/models/tents/${encodeURIComponent(tentFile)}`;
+  // All other files in tents/ are loaded as scenery props — keyed by basename
+  // (without extension) so buildPrepBase can place them by name.
+  out.tents = {};
+  for (const f of tentFiles) {
+    out.tents[f] = `/models/tents/${encodeURIComponent(f)}`;
+  }
 
   // Houses & vampires: keyed by basename (sans extension)
   for (const f of safeList("houses")) {
@@ -872,23 +885,23 @@ function pickVampireForMatch() {
   return vampireCatalog[Math.floor(Math.random() * vampireCatalog.length)];
 }
 
-function startHunt(room) {
-  room.phase = "hunt";
+// Two-step hunt entry: match:start drops the team into the prep phase
+// (walkable military base outside the house). They mill around with their
+// gear, then any player invokes match:enter-house to actually start the
+// timer / vampire AI / fear+moon climb. Phasmo-style "leave the truck and
+// walk through the front door" flow.
+function enterPrep(room) {
+  room.phase = "prep";
   room.fear = 18;
   room.moon = 45;
   room.evidence = [];
   room.wards = [];
-  room.vampireTile = { ...room.vampireStart };
-  room.vampirePosition = tileToWorld(room.vampireStart);
   room.threat = 0;
   room.result = null;
   room.rewards = null;
   room.tickCount = 0;
-
-  // Pick this match's vampire and seed the map's clue spots with its evidence.
-  // Nightmare difficulty draws 3-of-4 (canonical + alt) so confirmed evidence
-  // can ambiguously match several species; other difficulties shuffle the
-  // canonical 3 directly.
+  // Pick the vampire NOW (so the journal is consistent through prep) but
+  // don't activate the AI tick yet; the body stays out of view until hunt.
   const vampire = pickVampireForMatch();
   room.vampireId = vampire.id;
   room.vampire = vampire.name;
@@ -896,25 +909,54 @@ function startHunt(room) {
   const pool = (isNightmare && vampire.altEvidence)
     ? [...vampire.evidence, vampire.altEvidence]
     : vampire.evidence.slice();
-  const shuffled = pool.sort(() => Math.random() - 0.5);
-  room.signs = shuffled.slice(0, room.clueSpots.length);
+  room.signs = pool.sort(() => Math.random() - 0.5).slice(0, room.clueSpots.length);
   room.allowAltEvidence = isNightmare;
 
-  // Pin difficulty defaults applied to current difficulty
+  applyDifficulty(room, room.difficultyId || DEFAULT_DIFFICULTY);
+  Object.values(room.players).forEach((p) => {
+    p.alive = true;
+    // Prep spawn is OUTSIDE the contract grid; client renders the base at
+    // negative-Z and the player walks south to reach the house door.
+    p.position = { x: 0, y: 1.0, z: 14 };
+    p.flashlight = true;
+    p.hasRelic = false;
+    p.lastMoveAt = Date.now();
+  });
+  room.relic = computeRelicSpawn(room);
+  stopHunt(room);
+  addLog(room, `The team rolls up to ${room.contract}. Suit up at the staging post.`);
+}
+
+function startHunt(room) {
+  room.phase = "hunt";
+  room.vampireTile = { ...room.vampireStart };
+  room.vampirePosition = tileToWorld(room.vampireStart);
+
+  // If we're entering hunt directly (from a legacy call) make sure the
+  // vampire and signs are picked. enterPrep already does this so calls
+  // routed through match:start -> match:enter-house just re-use them.
+  if (!room.vampireId) {
+    const vampire = pickVampireForMatch();
+    room.vampireId = vampire.id;
+    room.vampire = vampire.name;
+    const isNightmare = room.difficultyId === "nightmare";
+    const pool = (isNightmare && vampire.altEvidence)
+      ? [...vampire.evidence, vampire.altEvidence]
+      : vampire.evidence.slice();
+    room.signs = pool.sort(() => Math.random() - 0.5).slice(0, room.clueSpots.length);
+    room.allowAltEvidence = isNightmare;
+  }
+
   applyDifficulty(room, room.difficultyId || DEFAULT_DIFFICULTY);
   Object.values(room.players).forEach((p) => {
     p.alive = true;
     p.position = { x: room.spawn.x, y: 1.0, z: room.spawn.z };
     p.flashlight = true;
-    p.hasRelic = false;
     p.lastMoveAt = Date.now();
   });
-  // Reset and seed the per-match relic. Spawned at the vault tile (K) on the
-  // map; auto-pickup when any hunter walks over it.
-  room.relic = computeRelicSpawn(room);
   stopHunt(room);
   room.huntInterval = setInterval(() => advanceHunt(room), HUNT_TICK_MS);
-  addLog(room, `The van doors open. ${room.difficulty} hunt begins.`);
+  addLog(room, `The team crosses the threshold. ${room.difficulty} hunt begins.`);
 }
 
 function stopHunt(room) {
@@ -990,18 +1032,29 @@ io.on("connection", (socket) => {
     if (!room) return;
     const player = room.players[socket.id];
     if (!player || !player.alive) return;
-    if (room.phase !== "hunt") return;
+    if (room.phase !== "hunt" && room.phase !== "prep") return;
 
-    const next = {
-      x: clamp(Number(payload.x) || player.position.x, PLAYER_RADIUS, room.mapRows[0].length * TILE - PLAYER_RADIUS),
-      y: 1.0,
-      z: clamp(Number(payload.z) || player.position.z, PLAYER_RADIUS, room.mapRows.length * TILE - PLAYER_RADIUS)
-    };
+    let next;
     const yaw = Number(payload.yaw) || 0;
-
-    if (collidesWithWalls(room, next)) {
-      socket.emit("player:reject", { position: player.position, yaw: player.yaw });
-      return;
+    if (room.phase === "prep") {
+      // Prep area lives outside the contract grid; clamp to a generous 60m
+      // perimeter and skip wall collision entirely. The base is dressed
+      // client-side.
+      next = {
+        x: clamp(Number(payload.x) || player.position.x, -30, 30),
+        y: 1.0,
+        z: clamp(Number(payload.z) || player.position.z, -10, 30)
+      };
+    } else {
+      next = {
+        x: clamp(Number(payload.x) || player.position.x, PLAYER_RADIUS, room.mapRows[0].length * TILE - PLAYER_RADIUS),
+        y: 1.0,
+        z: clamp(Number(payload.z) || player.position.z, PLAYER_RADIUS, room.mapRows.length * TILE - PLAYER_RADIUS)
+      };
+      if (collidesWithWalls(room, next)) {
+        socket.emit("player:reject", { position: player.position, yaw: player.yaw });
+        return;
+      }
     }
     // Track motion for the "stand still" ritual conditions. Only count
     // movement that crosses a meaningful threshold so micro-jitter from
@@ -1044,6 +1097,20 @@ io.on("connection", (socket) => {
       emitRoom(room);
       return;
     }
+    // Start in the prep area; host triggers match:enter-house when team is
+    // ready to actually breach the door. (This replaces the old direct
+    // startHunt path so the staging post is part of the loop.)
+    enterPrep(room);
+    emitRoom(room);
+  });
+
+  socket.on("match:enter-house", () => {
+    const room = getRoom(socket.data.roomCode);
+    if (!room) return;
+    // Any player in the prep area can trigger entry — usually the first
+    // one to walk through the door portal. Host gets priority if a race
+    // happens since match:start is host-gated.
+    if (room.phase !== "prep") return;
     startHunt(room);
     emitRoom(room);
   });
