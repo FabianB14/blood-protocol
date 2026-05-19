@@ -2540,7 +2540,12 @@
         c.z += (t.z - c.z) * Math.min(1, dt * 10);
         c.yaw += angleDelta(c.yaw, t.yaw) * Math.min(1, dt * 8);
         mesh.position.set(c.x, 0, c.z);
-        mesh.rotation.y = c.yaw + Math.PI;
+        // Mesh yaw matches the player's camera yaw directly. Hunter GLBs in
+        // public/models/hunters/ are authored facing -Z (Three.js default
+        // forward), same as the camera's natural direction. The previous
+        // +Math.PI offset assumed a +Z-facing rig and was making the mesh
+        // moonwalk relative to its movement / look direction.
+        mesh.rotation.y = c.yaw;
 
         if (mesh.userData.mixer) {
           mesh.userData.mixer.update(dt);
