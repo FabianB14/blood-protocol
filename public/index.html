@@ -474,6 +474,18 @@
     }
     .boot-loading-hint { font-size: 11px; color: var(--muted); }
 
+    /* Fade-to-black transition used when crossing scene boundaries
+       (entering the house from the FOB). z-index above the HUD but below
+       the boot loader and rotate prompt. */
+    .fade-overlay {
+      position: fixed; inset: 0; z-index: 220;
+      background: #000;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .35s ease;
+    }
+    .fade-overlay.dark { opacity: 1; }
+
     /* Phones and tablets in portrait. Wide desktops never trigger. */
     @media (orientation: portrait) and (max-width: 932px) {
       .rotate-overlay { display: flex; }
@@ -505,6 +517,8 @@
       <p class="boot-loading-hint" id="bootLoadingHint">Hunters / tents / vampires / scenery</p>
     </div>
   </div>
+
+  <div class="fade-overlay" id="fadeOverlay"></div>
 
   <div class="rotate-overlay" id="rotateOverlay" role="dialog" aria-modal="true">
     <div class="rotate-icon" aria-hidden="true"></div>
@@ -1175,9 +1189,20 @@
           node.frustumCulled = false;
         }
       });
-      // Record collider if requested. We use a simple cylinder approximation
-      // (x, z, radius) — fine for our top-down player movement.
-      if (opts.collider) prepColliders.push({ x, z, r: opts.collider });
+      // Record collider if requested. Accepts either a plain number (radius
+      // centered on the visual anchor) or { r, dx, dz } to shift the
+      // collider relative to the prop's anchor — handy for putting tent
+      // colliders behind the opening so the front is walk-in-able.
+      if (opts.collider) {
+        if (typeof opts.collider === 'number') {
+          prepColliders.push({ x, z, r: opts.collider });
+        } else {
+          const r = opts.collider.r ?? 1;
+          const dx = opts.collider.dx || 0;
+          const dz = opts.collider.dz || 0;
+          prepColliders.push({ x: x + dx, z: z + dz, r });
+        }
+      }
       return m;
     }
 
@@ -1264,36 +1289,40 @@
         if (m) worldGroup.add(m);
         return m;
       };
-      // Three tents in a row at the back of the base (doubled vs original
-      // for visual presence). Collider radius keeps the player out.
-      add('tent_001.glb', -7, 8, { height: 4.5, rotY: Math.PI, collider: 2.0 });
-      add('tent_001.glb',  0, 8, { height: 4.5, rotY: Math.PI, collider: 2.0 });
-      add('tent_001.glb',  7, 8, { height: 4.5, rotY: Math.PI, collider: 2.0 });
-      // Watchtower behind everything
-      add('tower_001.glb', 14, 16, { height: 12, rotY: -Math.PI / 4, collider: 1.8 });
-      // Storage container to the right
-      add('container_001.glb', -14, 5, { height: 4.0, rotY: 0, collider: 2.4 });
+      // Three tents at the back of the base. The cylinder collider is small
+      // and shifted toward the tent's back wall, so the front-facing opening
+      // is walkable and the player can step into a tent — they only bounce
+      // off the back of it. (`collider.dz` is the offset from the visual
+      // anchor; positive dz pushes the collider toward +Z, which is the
+      // back of the tent here because rotY=Math.PI faces it that way.)
+      add('tent_001.glb', -7, 8, { height: 4.5, rotY: Math.PI, collider: { r: 0.9, dz: 1.0 } });
+      add('tent_001.glb',  0, 8, { height: 4.5, rotY: Math.PI, collider: { r: 0.9, dz: 1.0 } });
+      add('tent_001.glb',  7, 8, { height: 4.5, rotY: Math.PI, collider: { r: 0.9, dz: 1.0 } });
+      // Watchtower legs — small collider so the player can squeeze under
+      add('tower_001.glb', 14, 16, { height: 12, rotY: -Math.PI / 4, collider: 1.0 });
+      // Storage container — keep this one solid
+      add('container_001.glb', -14, 5, { height: 4.0, rotY: 0, collider: 1.4 });
       // Gear table front-and-center: radio + crates
-      add('radiostation_001.glb', 1, 4, { height: 1.8, collider: 0.8 });
-      add('table_001.glb', -3, 4, { height: 1.4, collider: 1.0 });
+      add('radiostation_001.glb', 1, 4, { height: 1.8, collider: 0.5 });
+      add('table_001.glb', -3, 4, { height: 1.4, collider: 0.7 });
       // A bunch of crates and barrels scattered around the tents
       for (let i = 1; i <= 10; i += 1) {
         const name = `box_${String(i).padStart(3, '0')}.glb`;
         const angle = (i / 10) * Math.PI * 2;
         const r = 5 + (i % 3);
-        add(name, Math.cos(angle) * r, 5 + Math.sin(angle) * 3, { height: 0.9, rotY: Math.random() * Math.PI, collider: 0.5 });
+        add(name, Math.cos(angle) * r, 5 + Math.sin(angle) * 3, { height: 0.9, rotY: Math.random() * Math.PI, collider: 0.35 });
       }
       for (let i = 1; i <= 3; i += 1) {
         const name = `barrel_${String(i).padStart(3, '0')}.glb`;
-        add(name, -8 + i * 2.5, 11, { height: 1.6, collider: 0.5 });
+        add(name, -8 + i * 2.5, 11, { height: 1.6, collider: 0.35 });
       }
       // Defensive perimeter — hedgehogs, mortar, targets, tank
-      add('hedgehog_001.glb', -10, -2, { height: 1.4, collider: 1.0 });
-      add('hedgehog_001.glb',  10, -2, { height: 1.4, collider: 1.0 });
-      add('mortar_001.glb', -16, 8, { height: 2.0, rotY: Math.PI / 6, collider: 1.0 });
-      add('target_001.glb', 14, -4, { height: 2.4, collider: 0.6 });
-      add('target_002.glb', 16, -4, { height: 2.4, collider: 0.6 });
-      add('tank_001.glb', -18, 14, { height: 7.5, rotY: -Math.PI / 5, collider: 3.0 });
+      add('hedgehog_001.glb', -10, -2, { height: 1.4, collider: 0.6 });
+      add('hedgehog_001.glb',  10, -2, { height: 1.4, collider: 0.6 });
+      add('mortar_001.glb', -16, 8, { height: 2.0, rotY: Math.PI / 6, collider: 0.6 });
+      add('target_001.glb', 14, -4, { height: 2.4, collider: 0.4 });
+      add('target_002.glb', 16, -4, { height: 2.4, collider: 0.4 });
+      add('tank_001.glb', -18, 14, { height: 7.5, rotY: -Math.PI / 5, collider: 1.8 });
 
       // Warm lantern lights at the tents
       [[-6, 6], [0, 6], [6, 6], [-3, 2], [-12, 4]].forEach(([x, z]) => {
@@ -1374,6 +1403,26 @@
       if (!doorPortalMesh || !prepActive) return false;
       const p = controls.getObject().position;
       return Math.hypot(p.x - doorPortalMesh.position.x, p.z - doorPortalMesh.position.z) < 2.5;
+    }
+
+    // Smooth fade-to-black around the prep -> hunt transition. Server flips
+    // the phase behind the curtain, so the player sees a moment of dark
+    // (~350 ms) rather than a hard cut. Real walk-through-the-door geometry
+    // needs proper house meshes; until then this gives the right feel.
+    let enteringHouse = false;
+    function enterHouseWithFade() {
+      if (enteringHouse) return;
+      enteringHouse = true;
+      const overlay = $('fadeOverlay');
+      overlay.classList.add('dark');
+      // Fire the server transition just before the screen is fully dark,
+      // so the swap happens at the darkest frame.
+      setTimeout(() => socket.emit('match:enter-house'), 300);
+      // Fade back in once the new scene has had time to build.
+      setTimeout(() => {
+        overlay.classList.remove('dark');
+        enteringHouse = false;
+      }, 900);
     }
 
     // ---------- Build map ----------
@@ -2223,7 +2272,7 @@
         // In prep phase, E next to the door portal enters the house;
         // otherwise it scans for evidence as usual.
         if (roomState?.phase === 'prep' && isNearDoorPortal()) {
-          socket.emit('match:enter-house');
+          enterHouseWithFade();
         } else {
           socket.emit('match:scan');
         }
@@ -2362,7 +2411,14 @@
       };
       wireTap('touchScan', () => socket.emit('match:scan'));
       wireTap('touchWard', () => socket.emit('match:ward'));
-      wireTap('touchSeal', () => socket.emit('match:seal'));
+      wireTap('touchSeal', () => {
+        // Touch parity for prep-phase door entry.
+        if (roomState?.phase === 'prep' && isNearDoorPortal()) {
+          enterHouseWithFade();
+        } else {
+          socket.emit('match:seal');
+        }
+      });
       wireTap('touchLight', toggleFlashlight);
       wireTap('touchPing', sendPing);
       // Investigate is a hold-to-toggle on touch
@@ -2681,6 +2737,17 @@
       roomState.vampirePosition = tick.vampirePosition;
       roomState.vampireTile = tick.vampireTile;
       renderMeters(roomState);
+    });
+
+    // Realtime position updates from peers. We feed them into the existing
+    // smoothing in animate(), so the mesh lerps to the new position
+    // instead of teleporting. Cuts perceived lag from ~1.5s (room:tick) to
+    // the network round-trip (~50-150 ms).
+    socket.on('player:moved', ({ id, x, z, yaw }) => {
+      const mesh = playerMeshes.get(id);
+      if (!mesh) return;
+      mesh.userData.target = { x, z, yaw };
+      if (!mesh.userData.current) mesh.userData.current = { x, z, yaw };
     });
 
     socket.on('player:reject', ({ position, yaw }) => {

@@ -1073,6 +1073,16 @@ io.on("connection", (socket) => {
     player.position = next;
     player.yaw = yaw;
 
+    // Realtime broadcast to the rest of the room so other clients animate
+    // this player without waiting for the periodic room:state. Sender is
+    // excluded via socket.to(...). Payload is tiny.
+    socket.to(room.code).emit("player:moved", {
+      id: socket.id,
+      x: next.x,
+      z: next.z,
+      yaw
+    });
+
     // Auto-pickup relic when within range
     if (room.relic && !room.relic.claimed) {
       const rd = Math.hypot(next.x - room.relic.world.x, next.z - room.relic.world.z);
