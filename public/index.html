@@ -1126,17 +1126,51 @@
       moonLight.position.set(-26, 32, -55);
       worldGroup.add(moonLight);
 
-      // Tree silhouettes around the perimeter
+      // Tree perimeter — use uploaded GLBs from public/models/trees/ if any
+      // exist, otherwise the primitive cone silhouettes.
+      const treeNames = Object.keys(modelCatalog.trees);
       for (let i = 0; i < 36; i += 1) {
         const a = (i / 36) * Math.PI * 2 + Math.random() * 0.2;
         const r = 38 + Math.random() * 16;
-        const h = 4 + Math.random() * 4;
-        const tree = new THREE.Mesh(
-          new THREE.ConeGeometry(1.4, h, 6),
-          new THREE.MeshStandardMaterial({ color: 0x0c1411, roughness: 1.0 })
-        );
-        tree.position.set(Math.cos(a) * r, h / 2, Math.sin(a) * r);
-        worldGroup.add(tree);
+        const tx = Math.cos(a) * r;
+        const tz = Math.sin(a) * r;
+        if (treeNames.length > 0) {
+          const name = treeNames[Math.floor(Math.random() * treeNames.length)];
+          const m = placeProp(modelCatalog.trees, name, tx, tz, { height: 5 + Math.random() * 3, rotY: Math.random() * Math.PI * 2 });
+          if (m) worldGroup.add(m);
+        } else {
+          const h = 4 + Math.random() * 4;
+          const tree = new THREE.Mesh(
+            new THREE.ConeGeometry(1.4, h, 6),
+            new THREE.MeshStandardMaterial({ color: 0x0c1411, roughness: 1.0 })
+          );
+          tree.position.set(tx, h / 2, tz);
+          worldGroup.add(tree);
+        }
+      }
+
+      // Grass tufts scattered across the camp ground for ambient density
+      const grassNames = Object.keys(modelCatalog.grass);
+      if (grassNames.length > 0) {
+        for (let i = 0; i < 50; i += 1) {
+          const name = grassNames[Math.floor(Math.random() * grassNames.length)];
+          const gx = (Math.random() - 0.5) * 50;
+          const gz = (Math.random() - 0.5) * 50;
+          // Avoid plopping grass on top of the FOB or in the door corridor
+          if (Math.abs(gx) < 14 && gz < 18 && gz > -12) continue;
+          const m = placeProp(modelCatalog.grass, name, gx, gz, { height: 0.4 + Math.random() * 0.3, rotY: Math.random() * Math.PI * 2 });
+          if (m) worldGroup.add(m);
+        }
+      }
+
+      // Street / path tiles laid along the approach to the door (z = 4..-9)
+      const streetNames = Object.keys(modelCatalog.streets);
+      if (streetNames.length > 0) {
+        for (let z = 4; z > -10; z -= 2) {
+          const name = streetNames[Math.floor(Math.random() * streetNames.length)];
+          const m = placeProp(modelCatalog.streets, name, 0, z, { height: 0.1 });
+          if (m) worldGroup.add(m);
+        }
       }
 
       // ---- Military FOB layout ----
@@ -1177,7 +1211,7 @@
       add('mortar_001.glb', -16, 8, { height: 1.4, rotY: Math.PI / 6 });
       add('target_001.glb', 14, -4, { height: 1.8 });
       add('target_002.glb', 16, -4, { height: 1.8 });
-      add('tank_001.glb', -18, 14, { height: 3.5, rotY: -Math.PI / 5 });
+      add('tank_001.glb', -18, 14, { height: 6.5, rotY: -Math.PI / 5 });
 
       // Warm lantern lights at the tents
       [[-6, 6], [0, 6], [6, 6], [-3, 2], [-12, 4]].forEach(([x, z]) => {
@@ -1240,8 +1274,10 @@
       doorPortalMesh = door;
       worldGroup.add(door);
 
-      // Player spawn — at the back of the base near the tents, looking south
-      controls.getObject().position.set(0, PLAYER_HEIGHT, 14);
+      // Player spawn — in the middle of the base, looking toward the door.
+      // Gear and tents are behind them, the door + house are ahead. Avoids
+      // spawning inside the watchtower / tents.
+      controls.getObject().position.set(0, PLAYER_HEIGHT, 2);
       camera.lookAt(0, PLAYER_HEIGHT, -10);
     }
 
@@ -1799,7 +1835,7 @@
     // Cache of additional GLBs (tent, per-house, per-vampire) loaded once at
     // boot. Each entry: { scene, animations } — no auto-scaling here since
     // these models are scene props, not character-sized.
-    const modelCatalog = { tent: null, tents: {}, houses: {}, vampires: {} };
+    const modelCatalog = { tent: null, tents: {}, houses: {}, vampires: {}, trees: {}, streets: {}, grass: {} };
 
     function loadGLTFCached(url) {
       return new Promise((resolve) => {
@@ -1863,6 +1899,20 @@
       for (const [name, url] of Object.entries(manifest.tents || {})) {
         const g = await loadGLTFCached(url);
         if (g) modelCatalog.tents[name] = { scene: g.scene };
+      }
+      // Environment scenery (trees / streets / grass) — scattered around
+      // the staging area + along the approach to the house.
+      for (const [name, url] of Object.entries(manifest.trees || {})) {
+        const g = await loadGLTFCached(url);
+        if (g) modelCatalog.trees[name] = { scene: g.scene };
+      }
+      for (const [name, url] of Object.entries(manifest.streets || {})) {
+        const g = await loadGLTFCached(url);
+        if (g) modelCatalog.streets[name] = { scene: g.scene };
+      }
+      for (const [name, url] of Object.entries(manifest.grass || {})) {
+        const g = await loadGLTFCached(url);
+        if (g) modelCatalog.grass[name] = { scene: g.scene };
       }
       // Houses (per-contract id)
       for (const [id, url] of Object.entries(manifest.houses || {})) {
@@ -2028,7 +2078,16 @@
     let lastSent = 0;
 
     window.addEventListener('keydown', (e) => {
-      const inField = ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName);
+      // Only treat text-entry controls as "in field" — range sliders and
+      // selects shouldn't gobble WASD when focused. Also only block when
+      // the field is actually in the open modal (not e.g. the always-
+      // mounted chat input behind a closed lobby).
+      const ae = document.activeElement;
+      const isTextField = ae && (
+        (ae.tagName === 'INPUT' && (ae.type === 'text' || ae.type === 'search' || ae.type === 'email' || !ae.type)) ||
+        ae.tagName === 'TEXTAREA'
+      );
+      const inField = isTextField;
       if (e.code === 'Tab' && !inField) { e.preventDefault(); toggleMenu(); return; }
       if (modalOpen() || banishOpen() || inField) return;
       keys.add(e.code);
@@ -2448,6 +2507,12 @@
         }
       }
 
+      if (prevPhase === 'lobby' && room.phase === 'prep') {
+        // Dropped the team into the FOB — bail out of the lobby modal so
+        // they can actually walk around without scrolling for Resume.
+        closeModal();
+        showNotice(isTouchDevice ? 'In the staging post. Drag the right side to look, joystick to walk.' : 'In the staging post. Click anywhere to lock the pointer, then WASD to walk to the door.');
+      }
       if (prevPhase !== 'hunt' && room.phase === 'hunt') {
         controls.getObject().position.set(room.spawn.x, PLAYER_HEIGHT, room.spawn.z);
         closeModal();
@@ -2640,6 +2705,13 @@
     }
     function closeModal() {
       modalBack.classList.remove('open');
+      // Critical: blur any focused control inside the modal (range sliders,
+      // text inputs, buttons). Without this, the global keydown handler
+      // sees document.activeElement is INPUT and silently drops WASD —
+      // looks identical to "can't move" while mouse-look still works.
+      if (document.activeElement && document.activeElement !== document.body) {
+        document.activeElement.blur?.();
+      }
     }
     function toggleMenu() { modalOpen() ? closeModal() : openMenu(currentTab); }
 

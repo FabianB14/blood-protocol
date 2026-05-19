@@ -583,6 +583,14 @@ function scanModels() {
     const id = f.replace(/\.glb$/i, "");
     out.vampires[id] = `/models/vampires/${encodeURIComponent(f)}`;
   }
+  // Environment props — anything in trees/, streets/, grass/. The client
+  // scatters them around the staging area + along approach roads.
+  out.trees = {};
+  out.streets = {};
+  out.grass = {};
+  for (const f of safeList("trees"))   out.trees[f]   = `/models/trees/${encodeURIComponent(f)}`;
+  for (const f of safeList("streets")) out.streets[f] = `/models/streets/${encodeURIComponent(f)}`;
+  for (const f of safeList("grass"))   out.grass[f]   = `/models/grass/${encodeURIComponent(f)}`;
   return out;
 }
 

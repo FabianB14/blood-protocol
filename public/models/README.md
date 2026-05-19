@@ -102,12 +102,46 @@ Sources:
   large — most modern Three.js setups handle it transparently (we may need
   to add the DracoLoader on the client if you go that route).
 
+## trees/
+
+**Optional.** Any `.glb` here is randomly placed around the perimeter of
+the FOB instead of the primitive cone silhouettes that ship by default.
+Drop as many variants as you like — each tree is rotated randomly and
+scaled to ~5-8 m tall.
+
+Sources:
+- poly.pizza/u/Quaternius "Stylized Nature" or "Halloween Kit" packs
+- KayKit nature packs
+- Sketchfab → CC + low-poly tree
+
+## streets/
+
+**Optional.** Any `.glb` here is laid in a row along the approach corridor
+between the FOB spawn and the door portal (z = 4 → -10, every 2 m).
+Good for stone slabs, dirt roads, gravel tiles, broken paving.
+
+Sources:
+- Quaternius "Modular Road" or "Path Tile" packs
+- Free dirt-path GLBs on Sketchfab
+
+## grass/
+
+**Optional.** Tufts scattered across the camp ground (50 placements per
+build), avoiding the FOB props and the door corridor. Scaled to ~0.5 m.
+
+Sources:
+- Quaternius foliage packs (CC0)
+- ambientCG has cutout-grass billboards if you want to skip 3D
+
 ## Folder summary
 
 ```
 public/models/
   hunters/      [Adventurer.glb, Animated Woman.glb, ...]   already populated
-  tents/        [tent.glb]                                  needs 1 file
-  houses/       [ashbury.glb, ravenhall.glb, ...]           needs 1 per contract
+  tents/        [tent.glb plus all FOB kit props]           already populated
+  houses/       [ashbury.glb, ravenhall.glb, default.glb]   needs per-contract
   vampires/     [nosferatu.glb, noble.glb, ...]             needs up to 10
+  trees/        [oak.glb, pine.glb, ...]                    optional ambience
+  streets/      [stone_path.glb, ...]                       optional approach
+  grass/        [tuft_001.glb, ...]                         optional ground cover
 ```
