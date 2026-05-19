@@ -111,7 +111,7 @@
 
     /* Left column: evidence */
     .side-left {
-      position: fixed; left: 14px; top: 110px; width: 260px;
+      position: fixed; left: 14px; top: 170px; width: 260px;
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -133,7 +133,7 @@
 
     /* Right column: players + log */
     .side-right {
-      position: fixed; right: 14px; top: 110px; width: 260px;
+      position: fixed; right: 14px; top: 170px; width: 260px;
       display: grid; gap: 10px;
     }
     .panel {
@@ -598,7 +598,7 @@
   <!-- Main modal -->
   <div class="modal-back" id="modalBack">
     <div class="modal">
-      <div class="modal-head">
+      <div class="modal-head" style="position: sticky; top: 0; background: rgba(8,9,11,.98); z-index: 1;">
         <h2 id="modalTitle">Lobby</h2>
         <div class="tabs">
           <div class="tab active" data-tab="lobby">Lobby</div>
@@ -609,6 +609,7 @@
           <div class="tab" data-tab="settings">Settings</div>
           <div class="tab" data-tab="howto">How to Play</div>
         </div>
+        <button id="modalCloseX" aria-label="Close menu" title="Close (Tab)" style="position:absolute; top:14px; right:14px; width:36px; height:36px; min-height:36px; padding:0; border-radius:50%; font-size:18px; font-weight:900; line-height:1; background:rgba(255,255,255,.08); border:1px solid var(--line);">×</button>
       </div>
 
       <!-- Lobby tab -->
@@ -1176,7 +1177,7 @@
       add('mortar_001.glb', -16, 8, { height: 1.4, rotY: Math.PI / 6 });
       add('target_001.glb', 14, -4, { height: 1.8 });
       add('target_002.glb', 16, -4, { height: 1.8 });
-      add('tank_001.glb', -18, 14, { height: 2.4, rotY: -Math.PI / 5 });
+      add('tank_001.glb', -18, 14, { height: 3.5, rotY: -Math.PI / 5 });
 
       // Warm lantern lights at the tents
       [[-6, 6], [0, 6], [6, 6], [-3, 2], [-12, 4]].forEach(([x, z]) => {
@@ -2207,6 +2208,11 @@
       return roomState.mapRows[ty]?.[tx] || '#';
     }
     function blocked(x, z) {
+      // The prep base is rendered outside the contract grid; the grid would
+      // report 'wall' for every tile around the FOB, so skip wall collision
+      // entirely while in prep. (Server-side prep also has no wall check —
+      // see player:move in the prep branch.)
+      if (roomState?.phase === 'prep') return false;
       const r = PLAYER_RADIUS;
       return tileAt(x - r, z - r) === '#' ||
              tileAt(x + r, z - r) === '#' ||
@@ -2744,6 +2750,7 @@
 
     $('menuBtn').addEventListener('click', () => openMenu(currentTab));
     $('closeModalBtn').addEventListener('click', closeModal);
+    $('modalCloseX').addEventListener('click', closeModal);
     $('backToTitleBtn').addEventListener('click', () => {
       // If the player is in a room, leave it first (server handles host
       // succession and room teardown). The room:left handler builds the
@@ -3195,6 +3202,16 @@
     });
 
     loadHunterModels().then(() => {
+      // If the player landed in prep before the tent / FOB props finished
+      // loading, the base will have skipped any missing meshes silently.
+      // Rebuild it now so the uploaded models actually show up.
+      if (prepActive && roomState?.phase === 'prep') {
+        buildPrepBase(roomState);
+      }
+      if (stagingActive && modelCatalog.tent) {
+        // Same for the boot staging area when the tent GLB landed late.
+        buildStagingArea();
+      }
       if (hunterModels.length === 0 || !roomState) return;
       // Swap any placeholder capsule hunters created before models loaded
       for (const [id, mesh] of [...playerMeshes.entries()]) {
