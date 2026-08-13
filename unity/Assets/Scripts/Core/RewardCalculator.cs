@@ -40,11 +40,14 @@ namespace Nightfall
         {
             float mult = rewardMultiplier <= 0f ? 1f : rewardMultiplier;
 
-            int evidencePay = (int)Math.Round(evidenceCount * NightfallConstants.EvidencePayPerSign * mult);
-            int survivalBonus = success ? (int)Math.Round(Math.Max(0f, 250f - fearPercent) * mult) : 0;
-            int speedBonus = success ? (int)Math.Round(Math.Max(0f, 200f - moonPercent) * mult) : 0;
-            int levelBonus = success ? (int)Math.Round(contractLevel * 80 * mult) : 0;
-            int total = (int)Math.Round(funds + evidencePay + survivalBonus + speedBonus + levelBonus);
+            // MidpointRounding.AwayFromZero matches JavaScript's Math.round
+            // for the non-negative values used here; C#'s default banker's
+            // rounding would diverge from the web server on exact-.5 inputs.
+            int evidencePay = (int)Math.Round(evidenceCount * NightfallConstants.EvidencePayPerSign * (double)mult, MidpointRounding.AwayFromZero);
+            int survivalBonus = success ? (int)Math.Round(Math.Max(0f, 250f - fearPercent) * (double)mult, MidpointRounding.AwayFromZero) : 0;
+            int speedBonus = success ? (int)Math.Round(Math.Max(0f, 200f - moonPercent) * (double)mult, MidpointRounding.AwayFromZero) : 0;
+            int levelBonus = success ? (int)Math.Round(contractLevel * 80 * (double)mult, MidpointRounding.AwayFromZero) : 0;
+            int total = (int)Math.Round((double)funds + evidencePay + survivalBonus + speedBonus + levelBonus, MidpointRounding.AwayFromZero);
 
             return new RewardBreakdown
             {
